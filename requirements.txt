@@ -1,0 +1,20 @@
+# pip uninstall -y paddlepaddle paddlepaddle-gpu paddleocr opencv-python opencv-contrib-python opencv-python-headless numpy imgaug
+# pip cache purge
+
+python 3.9
+
+# torch
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# opencv不行就加0.2个版本                 👇
+pip install "opencv-python-headless==4.6.0.66" "opencv-contrib-python==4.6.0.66"
+pip install "imgaug==0.4.0"
+pip install "paddlepaddle==2.6.2"
+pip install "paddleocr==2.7.0.3"
+
+pip install "numpy==1.23.5" --force-reinstall --no-deps
+pip install pymysql fuzzywuzzy python-Levenshtein
+pip install pynput
+pip install einops
+pip install timm
+pip install pymysql
+

@@ -1,0 +1,50 @@
+project:
+  name: "Medical Image Detect"
+
+crop_region:  # 识别区域
+  x_min: 640
+  x_max: 1920
+  y_min: 720
+  y_max: 2048
+
+RTSP:
+  username: "admin"
+  password: "a1b2c3d4"
+  ip_address: "192.168.1.168"
+  port: "554"
+  channel: "201"
+
+model: # unetformer模型配置
+  num_classes: 4
+  checkpoint_path: "./model/best_model_0329_2.pt"
+  yolo_path : "./model/best_yolo.pt"
+
+segmentor: # 处理（关键性能参数）
+  tile_size: 1024
+  overlap: 16  # 减小overlap提升速度
+  target_fps: 6
+  batch_frames: 1  # 🔥 批量处理帧数（根据显存调整：2-4）
+
+display: # 显示
+  output_type: overlay
+  overlay_alpha: 0.5
+  display_scale: 0.5
+
+saving: # 保存
+  save_video: false # 是否保存视频
+  output_path: "./realtime_segs_{int(time.time())}.mp4"
+  save_fps: 20
+
+db_config: # 数据库配置
+  host: 192.168.137.1
+  user: root
+  password: root
+  database: medicine_db
+  charset: utf8mb4
+
+table_config: # 数据表配置
+  drug_table: drugs
+  drug_column: medicine_name
+  patient_table: patients
+  patient_column: name
+
