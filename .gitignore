@@ -1,0 +1,4 @@
+.pycache_tmp/
+.pycache_verify/
+__pycache__/
+*.py[cod]

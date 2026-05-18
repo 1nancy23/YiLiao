@@ -68,6 +68,111 @@ class ImageProcessor:
         return enhanced_img
 
 
+    @staticmethod
+    def reduce_glare(image, strength=0.9, inpaint_radius=5, return_mask=False):
+        """
+        Reduce plastic-film glare with OpenCV only.
+
+        This is designed for recognition preprocessing:
+        1. correct slow illumination changes on LAB-L,
+        2. detect low-saturation saturated highlights,
+        3. avoid strong text/edge pixels as much as possible,
+        4. inpaint the remaining specular mask,
+        5. restore local contrast with CLAHE and mild sharpening.
+        """
+        if isinstance(image, str):
+            img = cv2.imread(image)
+            if img is None:
+                print(f"Failed to read image: {image}")
+                return (None, None) if return_mask else None
+        else:
+            img = image.copy()
+
+        h, w = img.shape[:2]
+        img_area = max(1, h * w)
+
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        s = hsv[:, :, 1]
+        v = hsv[:, :, 2]
+
+        # Step 1: repair compact saturated highlights.
+        v_thr = max(210, int(np.percentile(v, 96.5)))
+        bright_low_sat = cv2.inRange(v, v_thr, 255) & cv2.inRange(s, 0, 120)
+
+        bgr_min = np.min(img, axis=2)
+        bgr_max = np.max(img, axis=2)
+        neutral_white = ((bgr_min > 205) & ((bgr_max - bgr_min) < 65)).astype(np.uint8) * 255
+        mask = cv2.bitwise_or(bright_low_sat, neutral_white)
+
+        # Keep likely text strokes and hard edges out of the inpaint mask.
+        grad_x = cv2.Sobel(gray, cv2.CV_16S, 1, 0, ksize=3)
+        grad_y = cv2.Sobel(gray, cv2.CV_16S, 0, 1, ksize=3)
+        grad = cv2.convertScaleAbs(cv2.addWeighted(
+            cv2.convertScaleAbs(grad_x), 0.5,
+            cv2.convertScaleAbs(grad_y), 0.5, 0
+        ))
+        edge_keep = cv2.dilate(cv2.inRange(grad, 60, 255), np.ones((3, 3), np.uint8), iterations=1)
+        mask = cv2.bitwise_and(mask, cv2.bitwise_not(edge_keep))
+
+        kernel3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        kernel5 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        kernel7 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel3, iterations=1)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel7, iterations=2)
+
+        # Drop tiny components; these are usually characters or sensor noise.
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+        clean_mask = np.zeros_like(mask)
+        min_area = max(30, int(img_area * 0.00035))
+        for i in range(1, num_labels):
+            area = stats[i, cv2.CC_STAT_AREA]
+            bw = stats[i, cv2.CC_STAT_WIDTH]
+            bh = stats[i, cv2.CC_STAT_HEIGHT]
+            if area >= min_area and bw >= 6 and bh >= 6:
+                clean_mask[labels == i] = 255
+        clean_mask = cv2.dilate(clean_mask, kernel3, iterations=2)
+
+        inpainted = cv2.inpaint(img, clean_mask, inpaint_radius, cv2.INPAINT_TELEA)
+        mask_soft = cv2.GaussianBlur(clean_mask.astype(np.float32) / 255.0, (0, 0), 2.0)
+        mask_soft = np.clip(mask_soft * strength, 0.0, 1.0)[:, :, None]
+        base = (img.astype(np.float32) * (1.0 - mask_soft) +
+                inpainted.astype(np.float32) * mask_soft).astype(np.uint8)
+
+        # Step 2: reduce broad plastic-film glare as an additive specular layer.
+        dark = np.min(base, axis=2)
+        bg_kernel = max(31, (min(h, w) // 14) | 1)
+        bg_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (bg_kernel, bg_kernel))
+        base_dark = cv2.morphologyEx(dark, cv2.MORPH_OPEN, bg_kernel)
+        specular = cv2.subtract(dark, base_dark)
+        specular = cv2.GaussianBlur(specular, (0, 0), 5)
+
+        base_hsv = cv2.cvtColor(base, cv2.COLOR_BGR2HSV)
+        base_v = base_hsv[:, :, 2]
+        broad_mask = ((specular > 12) & (base_v > 145)).astype(np.uint8) * 255
+        broad_mask = cv2.morphologyEx(broad_mask, cv2.MORPH_OPEN, kernel5, iterations=1)
+        broad_mask = cv2.morphologyEx(broad_mask, cv2.MORPH_CLOSE, kernel7, iterations=1)
+        broad_mask = cv2.bitwise_and(broad_mask, cv2.bitwise_not(edge_keep))
+        broad_soft = cv2.GaussianBlur(broad_mask.astype(np.float32) / 255.0, (0, 0), 3.0)
+        specular_sub = (specular.astype(np.float32) * 0.85 * broad_soft)[:, :, None]
+        corrected = np.clip(base.astype(np.float32) - specular_sub, 0, 255).astype(np.uint8)
+
+        # Step 3: mild local contrast restoration without boosting glare back.
+        base_lab = cv2.cvtColor(corrected, cv2.COLOR_BGR2LAB)
+        base_l, base_a, base_b = cv2.split(base_lab)
+        clahe = cv2.createCLAHE(clipLimit=1.6, tileGridSize=(8, 8))
+        enhanced_l = clahe.apply(base_l)
+        enhanced_l = cv2.addWeighted(enhanced_l, 0.45, base_l, 0.55, 0)
+        corrected = cv2.cvtColor(cv2.merge((enhanced_l, base_a, base_b)), cv2.COLOR_LAB2BGR)
+
+        blur = cv2.GaussianBlur(corrected, (0, 0), 1.0)
+        corrected = cv2.addWeighted(corrected, 1.15, blur, -0.15, 0)
+
+        if return_mask:
+            return corrected, cv2.bitwise_or(clean_mask, broad_mask)
+        return corrected
+
+
 
     @staticmethod
     def estimate_sharpness(image):

@@ -98,6 +98,8 @@ class DrugMatcher:
                 self._load_drug_names()
             name_list = self._drug_names
             print(f"🔍 药品匹配模式，查询：{query}")
+            ###测试全部返回
+            # return self._drug_names
         elif match_type == 'bag':
             # 患者匹配
             if self._patient_names is None:

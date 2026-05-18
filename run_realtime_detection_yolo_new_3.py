@@ -839,8 +839,8 @@ def run_realtime_detection(
         device=str(device),
         tile_size=640,
         overlap=64,
-        conf_thres=0.5,
-        iou_thres=0.85,
+        conf_thres=0.32,
+        iou_thres=0.9,
         batch_size=1
     )
 

@@ -6,7 +6,24 @@ import json
 import pickle
 import pymysql
 import time
+from rknnlite.api import RKNNLite
+label_list = [0, 90, 180, 270]
+def reverse_rotate_with_label(img, pred):
+    angle = label_list[int( pred )]
 
+    # 反向旋转角度
+    reverse_angle = (360 - angle) % 360
+
+    if reverse_angle == 0:
+        return img
+    elif reverse_angle == 90:
+        return cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+    elif reverse_angle == 180:
+        return cv2.rotate(img, cv2.ROTATE_180)
+    elif reverse_angle == 270:
+        return cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    else:
+        raise ValueError(f"不支持的角度: {reverse_angle}")
 class PharmaceuticalBottleClassifier:
     """
     药瓶分类器，支持从MySQL数据库存储和加载特征。
@@ -23,19 +40,30 @@ class PharmaceuticalBottleClassifier:
         self.conn = db_conn
 
         # self.sift = cv2.SIFT_create(nfeatures=320,contrastThreshold=0.02,nOctaveLayers=3,)
-        self.sift = cv2.ORB_create(nfeatures=160)
+        # self.sift = cv2.ORB_create(nfeatures=160)
+        self.sift = cv2.SIFT_create(
+            nfeatures=500,
+            contrastThreshold=0.03,
+            edgeThreshold=10,
+            sigma=1.6
+        )
         FLANN_INDEX_KDTREE = 1
+        self.cls_model = RKNNLite()
+        self.cls_model.load_rknn("/home/forlinx/Models/AnotherYiliao/shibie/YiLiaoShiBie/model_cls.rknn")
+        CLS = self.cls_model.init_runtime(core_mask=RKNNLite.NPU_CORE_2)
         index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=3)
         search_params = dict(checks=20)
         self.flann = cv2.FlannBasedMatcher(index_params, search_params)
         # self.matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
-        self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+        self.matcher = cv2.BFMatcher()
+        # cv2.NORM_HAMMING, crossCheck=False
         self._init_db_table()
 
         # ========== 核心优化：初始化时一次性加载全部特征到内存 ==========
         self._templates_cache = {}   # {medicine_name: [{'desc_sift': np.array}, ...]}
         self._deep_avg_cache = {}    # {medicine_name: np.array or None}
         self._load_all_features()
+        
         print(f"[初始化完成] 已加载 {len(self._templates_cache)} 种药品特征到内存")
 
     # ---------- 私有辅助方法 ----------
@@ -60,16 +88,21 @@ class PharmaceuticalBottleClassifier:
         # print("desc2",desc2.shape)
         
         if desc1 is None or desc2 is None:
-            return 0
+            return 0, 0.0
         try:
             matches = self.matcher.knnMatch(desc1, desc2, k=2)
             good = 0
-            for m, n in matches:
+            for item in matches:
+                if len(item) < 2:
+                    continue
+                m, n = item
                 if m.distance < 0.7 * n.distance:
                     good += 1
-            return good
+            denom = max(1, min(len(desc1), len(desc2)))
+            score = good / denom
+            return good, score
         except Exception:
-            return 0
+            return 0, 0.0
 
     def _init_db_table(self):
         with self.conn.cursor() as cursor:
@@ -238,6 +271,17 @@ class PharmaceuticalBottleClassifier:
         if not templates_dict:
             raise ValueError("未找到任何指定药品的特征，无法分类")
         start_time2 = time.time()
+        
+        input_nchw = cv2.resize(image, (224, 224))
+        batch_data = np.stack([input_nchw]*1, axis=0)
+        outputs = self.cls_model.inference(inputs=[batch_data])
+        outputs = outputs[0]
+        pred_indices = np.argmax(outputs, axis=1)  # 形状 (20,)
+        pred = pred_indices[0]
+        print("药瓶旋转")
+        image=reverse_rotate_with_label(image, pred)
+        
+        
         _, desc_query = self._extract_sift_features(image)
         end_time2 = time.time()
         print(f"[特征提取耗时] {end_time2 - start_time2:.4f} 秒")
@@ -245,18 +289,38 @@ class PharmaceuticalBottleClassifier:
         details = {}
         
         for name, templates in templates_dict.items():
-            sift_scores = [
-                self._match_sift_features(t['desc_sift'], desc_query)
-                for t in templates
-            ]
-            max_sift = max(sift_scores) if sift_scores else 0
-            sift_conf = min(1.0, max_sift / 15.0)
+            template_scores = []
+            for t in templates:
+                good_matches, match_score = self._match_sift_features(
+                    t['desc_sift'],
+                    desc_query
+                )
+                template_scores.append({
+                    'good_matches': good_matches,
+                    'match_score': match_score,
+                    'desc_template_len': 0 if t['desc_sift'] is None else len(t['desc_sift']),
+                    'desc_query_len': 0 if desc_query is None else len(desc_query),
+                })
 
-            final = sift_conf * 0.6
+            best_template = max(
+                template_scores,
+                key=lambda item: item['match_score'],
+                default={
+                    'good_matches': 0,
+                    'match_score': 0.0,
+                    'desc_template_len': 0,
+                    'desc_query_len': 0,
+                }
+            )
+            max_sift = best_template['good_matches']
+            sift_conf = best_template['match_score']
+
+            final = sift_conf
             scores[name] = final
             details[name] = {
                 'max_sift_score': max_sift,
                 'sift_confidence': sift_conf,
+                'best_template': best_template,
             }
 
         sorted_items = sorted(scores.items(), key=lambda x: x[1], reverse=True)

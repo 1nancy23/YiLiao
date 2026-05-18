@@ -44,7 +44,7 @@ def init_ocr_model(use_gpu=None, show_log=False):
         use_gpu = paddle.is_compiled_with_cuda()
     ocr = PaddleOCR(
         use_angle_cls=False,
-        det_algorithm="DB",  # 使用DB算法处理小文字
+        # det_algorithm="DB",  # 使用DB算法处理小文字
         det_max_side_len=480,                    # 增大最大边长以捕捉小文字
         det_score_mode="Fast",  # 提高检测精度
         det_db_thresh=0.6,     # 降低检测阈值（针对模糊文字）
@@ -81,15 +81,27 @@ def init_ocr_model_2(use_gpu=None, show_log=False):
     if use_gpu is None:
         use_gpu = paddle.is_compiled_with_cuda()
     ocr = PaddleOCR(
-        use_angle_cls=True,
+        det_max_side_len=480,                    # 增大最大边长以捕捉小文字
+        det_score_mode="Fast",  # 提高检测精度
+        det_db_thresh=0.6,     # 降低检测阈值（针对模糊文字）
+        det_db_box_thresh=0.6, # 降低检测框阈值
         lang='ch',
-        det_db_thresh=0.05,
-        det_db_box_thresh=0.05,
-        det_db_unclip_ratio=2.0,
-        det_limit_side_len=1920,
-        det_limit_type='max',
+        # rec_algorithm="CRNN",
+        rec_batch_num=8,       # 减小批处理数量提高小图精度
+        # rec_image_shape="3, 48, 48",  # 针对小文字调整输入尺寸
+        use_gpu=False,
+        det=True,
+        rec=True,
+        rec_score_thresh=0.6,
+        cpu_threads=4,
+        # rec_batch_num=2,
+        gpu_mem=1024,
+        # use_tensorrt=True,
+        use_fp16=True,
+        # enable_mkldnn=True,
+        # use_gpu_threads=4,
         show_log=False,
-        # cls_thresh=0.5,
+        det_db_unclip_ratio=2.00,
     )
     
     

@@ -588,29 +588,92 @@ class OCRRecognizer:
             rec_score_thresh=0.5,         # 与原始PaddleOCR配置一致
             line_gap_threshold=line_gap_threshold
         )
+def _normalize_ocr_unit_text(text):
+    text = text.replace(" ", "")
+    text = text.replace("％", "%")
+    text = text.replace("Ｍ", "M").replace("ｍ", "m")
+    text = text.replace("Ｌ", "L").replace("ｌ", "l")
+    return text.lower()
+
+
+def _format_number_text(number_text):
+    if "." in number_text:
+        number_text = number_text.rstrip("0").rstrip(".")
+    return number_text
+
+
+def _normalize_concentration_value(number_text):
+    value_text = number_text.strip()
+    if not value_text:
+        return None
+
+    try:
+        value = float(value_text)
+    except ValueError:
+        return None
+
+    # Known infusion-bag concentrations in this project. Restricting fallback
+    # inference to these values avoids turning unrelated numbers into percents.
+    allowed = [
+        (0.9, "0.9%"),
+        (5.0, "5%"),
+        (10.0, "10%"),
+    ]
+
+    for allowed_value, label in allowed:
+        if abs(value - allowed_value) < 1e-6:
+            return label
+
+    # 0.9% is easy to OCR as "09" or "9" when the decimal point is missed.
+    if value_text in ("09", "9"):
+        return "0.9%"
+
+    return None
+
+
 def parse_required_fields(result):
     drug_name = None
     concentration = None
     volume = None
+    normalized_texts = []
 
     if result is None or len(result) == 0 or result[0] is None:
         raise ValueError("OCR没有检测到任何文本")
 
     for line in result[0]:
         text = line[1][0]
-        text = text.replace(" ", "")
+        text = _normalize_ocr_unit_text(text)
+        normalized_texts.append(text)
 
         m = re.search(r'[\u4e00-\u9fa5]+液', text)
         if m:
             drug_name = m.group()
 
-        m = re.search(r'\d+(?:\.\d+)?%', text)
+        m = re.search(r'(\d+(?:\.\d+)?)%', text)
         if m:
-            concentration = m.group()
+            concentration = _normalize_concentration_value(m.group(1))
+            if concentration is None:
+                concentration = f"{_format_number_text(m.group(1))}%"
 
-        m = re.search(r'\d+(?:\.\d+)?ml', text)
+        m = re.search(r'(\d+(?:\.\d+)?)(?:ml|m1|毫升)', text)
         if m:
-            volume = m.group()
+            volume = f"{_format_number_text(m.group(1))}ml"
+
+    if concentration is None:
+        # The percent sign is very small and often missed. If OCR gets a known
+        # concentration number such as "0.9", "5", "10", or "09" while volume
+        # is on a separate "100ml" line, infer the missing percent sign.
+        for text in normalized_texts:
+            if re.search(r'(?:ml|m1|毫升)', text):
+                continue
+            numbers = re.findall(r'\d+(?:\.\d+)?', text)
+            if len(numbers) != 1:
+                continue
+
+            inferred = _normalize_concentration_value(numbers[0])
+            if inferred is not None:
+                concentration = inferred
+                break
 
     if drug_name is None:
         raise ValueError("未检测到完整的 XXX液")
@@ -905,10 +968,16 @@ class OCRRecognizer_ori:
         outputs = outputs[0]
         pred_indices = np.argmax(outputs, axis=1)  # 形状 (20,)
         pred = pred_indices[0]
+        
+        image = cv2.resize(image, (448, 448))
         image=reverse_rotate_with_label(image, pred)
-        cv2.imwrite("image.png", image)
+        
         result=self.rec_model.ocr(image, det=True, rec=True)
+        print("初始检测结果")
         print(result)
+        if result==None:
+            return
+        cv2.imwrite("image.png", image)
         result=parse_required_fields(result)
         print(result)
         # del corrected_img
