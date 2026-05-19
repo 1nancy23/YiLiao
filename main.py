@@ -158,7 +158,7 @@ print("成功")
 from run_realtime_detection_yolo_new_3 import run_realtime_detection
 from src.identification.Recog import PharmaceuticalBottleClassifier
 # from src.utils.init_utils import A,B
-from src.identification.OCRRecognizer import OCRRecognizer,OCRRecognizer_ori
+from src.identification.OCRRecognizer_rknn import OCRRecognizer,OCRRecognizer_ori
 from src.identification.DrugMatcher import DrugMatcher
 from src.utils.single_img_saver import img_shower
 

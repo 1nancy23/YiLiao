@@ -54,7 +54,7 @@ class PharmaceuticalBottleClassifier:
         return self.sift.detectAndCompute(image, None)
 
     def _extract_deep_features(self, image):
-        
+        return
     
 
     def _extract_features_from_image(self, image):

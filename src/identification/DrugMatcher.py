@@ -2,7 +2,7 @@ import pymysql
 from fuzzywuzzy import fuzz, process
 from typing import List, Optional, Dict, Any
 
-from src.identification.OCRRecognizer import OCRRecognizer
+from src.identification.OCRRecognizer_rknn import OCRRecognizer
 
 
 class DrugMatcher:
