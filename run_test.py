@@ -14,7 +14,7 @@ import pymysql
 from src.segmentation.segmenter_yolo import YOLOTileProcessor
 from src.processor.img_cropper import crop_image_by_coordinates
 
-from src.identification.OCRRecognizer import OCRRecognizer_ori
+from src.identification.OCRRecognizer_rknn import OCRRecognizer_ori
 from src.identification.Recog import PharmaceuticalBottleClassifier
 from src.identification.DrugMatcher import DrugMatcher
 
