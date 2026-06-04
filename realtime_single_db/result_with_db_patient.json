@@ -1,0 +1,305 @@
+{
+  "image": "005.png",
+  "detection_timing_sec": {
+    "detect_batch": 0.133373,
+    "detect_runtime_excluding_model_init": 0.133373,
+    "frames": 1.0,
+    "fps": 7.497768
+  },
+  "background": {
+    "timing_sec": {
+      "background_total": 2.713995,
+      "select_sharpest": 2e-06,
+      "crop": 0.001915,
+      "prepare_and_recognition": 2.712068,
+      "parallel_tasks": 2.713995,
+      "runtime_excluding_model_init": 2.713995,
+      "target_count": 9.0,
+      "bottle_count": 6.0,
+      "bag_count": 1.0,
+      "shuye_count": 2.0,
+      "bottle_ocr_angle_cls": 0.08763,
+      "bottle_ocr_angle_pred": 6.0,
+      "bottle_ocr_rknn_det": 0.544222,
+      "bottle_ocr_text_regions": 29.0,
+      "bottle_ocr_rknn_rec": 4.277242,
+      "bottle_ocr_angle_rotated_score": 34.5,
+      "bottle_ocr_fallback_rknn_det": 0.092477,
+      "bottle_ocr_fallback_text_regions": 10.0,
+      "bottle_ocr_fallback_rknn_rec": 1.231693,
+      "bottle_ocr_angle_fallback_score": 41.25,
+      "bottle_ocr_angle_used_fallback": 2.0,
+      "bottle_ocr_total": 6.23367,
+      "bottle_ocr_recognizer_call": 6.233933,
+      "bottle_match": 0.026428,
+      "bottle_total": 6.260466,
+      "shuye_ocr_preprocess": 0.020403,
+      "shuye_ocr_angle_cls": 0.012995,
+      "shuye_ocr_rknn_det": 0.081972,
+      "shuye_ocr_text_regions": 4.0,
+      "shuye_ocr_rknn_rec": 0.625728,
+      "shuye_ocr_total": 0.741166,
+      "shuye_ocr_recognizer_call": 0.743207,
+      "shuye_total": 0.743233,
+      "bag_ocr_angle_cls": 0.006664,
+      "bag_ocr_angle_pred": 0.0,
+      "bag_ocr_rknn_det": 0.040501,
+      "bag_ocr_text_regions": 7.0,
+      "bag_ocr_rknn_rec": 0.29244,
+      "bag_ocr_total": 0.339638,
+      "bag_ocr_recognizer_call": 0.339665,
+      "bag_match": 0.0,
+      "bag_total": 0.339679
+    },
+    "results": [
+      {
+        "type": "bottle",
+        "index": 2,
+        "ocr_text": "注射SCefts1.0g",
+        "candidates": [
+          "注射用头孢他啶",
+          "注射用头孢曲松钠",
+          "注射用头孢西丁钠",
+          "注射用头孢哌酮钠舒巴坦钠（2：1）",
+          "注射用头孢哌酮钠舒巴坦钠"
+        ],
+        "final_medicine": "注射用头孢他啶",
+        "confidence": 0.0,
+        "status": "done",
+        "timing_sec": {
+          "ocr_angle_cls": 0.021707,
+          "ocr_angle_pred": 1.0,
+          "ocr_rknn_det": 0.133947,
+          "ocr_text_regions": 4.0,
+          "ocr_rknn_rec": 0.741336,
+          "ocr_angle_rotated_score": 6.0,
+          "ocr_fallback_rknn_det": 0.048801,
+          "ocr_fallback_text_regions": 5.0,
+          "ocr_fallback_rknn_rec": 0.641034,
+          "ocr_angle_fallback_score": 10.75,
+          "ocr_angle_used_fallback": 1.0,
+          "ocr_total": 1.586954,
+          "ocr_recognizer_call": 1.586993,
+          "match": 0.003494,
+          "total": 1.590505
+        }
+      },
+      {
+        "type": "bottle",
+        "index": 5,
+        "ocr_text": "正大天销经盘异甘草酸#：2.5/1产热：251162028/天健",
+        "candidates": [
+          "异甘草酸镁注射液"
+        ],
+        "final_medicine": "异甘草酸镁注射液",
+        "confidence": 0.0,
+        "status": "done",
+        "timing_sec": {
+          "ocr_angle_cls": 0.006737,
+          "ocr_angle_pred": 0.0,
+          "ocr_rknn_det": 0.041487,
+          "ocr_text_regions": 7.0,
+          "ocr_rknn_rec": 0.577495,
+          "ocr_total": 0.625753,
+          "ocr_recognizer_call": 0.625787,
+          "match": 0.003485,
+          "total": 0.629287
+        }
+      },
+      {
+        "type": "shuye",
+        "index": 1,
+        "ocr_text": {
+          "liquid": null,
+          "concentration": null,
+          "volume": null,
+          "raw_text": "",
+          "missing": [
+            "liquid",
+            "concentration",
+            "volume"
+          ],
+          "status": "ocr_empty"
+        },
+        "liquid": null,
+        "concentration": null,
+        "volume": null,
+        "raw_text": "",
+        "status": "ocr_empty",
+        "timing_sec": {
+          "ocr_preprocess": 0.005139,
+          "ocr_angle_cls": 0.006239,
+          "ocr_rknn_det": 0.03825,
+          "ocr_text_regions": 0.0,
+          "ocr_rknn_rec": 0.0,
+          "ocr_total": 0.049651,
+          "ocr_recognizer_call": 0.049685,
+          "total": 0.049699
+        }
+      },
+      {
+        "type": "bottle",
+        "index": 1,
+        "ocr_text": "摄鸟氨酸[品可]F2510m【姓到]2028吨",
+        "candidates": [
+          "注射用门冬氨酸鸟氨酸"
+        ],
+        "final_medicine": "注射用门冬氨酸鸟氨酸",
+        "confidence": 0.0,
+        "status": "done",
+        "timing_sec": {
+          "ocr_angle_cls": 0.023108,
+          "ocr_angle_pred": 3.0,
+          "ocr_rknn_det": 0.148441,
+          "ocr_text_regions": 6.0,
+          "ocr_rknn_rec": 0.768154,
+          "ocr_angle_rotated_score": 28.5,
+          "ocr_angle_used_fallback": 0.0,
+          "ocr_total": 0.939774,
+          "ocr_recognizer_call": 0.939805,
+          "match": 0.00618,
+          "total": 0.946006
+        }
+      },
+      {
+        "type": "bottle",
+        "index": 4,
+        "ocr_text": "H川炎琥宁C502006F22027年01月哈尔筑珍餐新药有限公司",
+        "candidates": [
+          "注射用炎琥宁"
+        ],
+        "final_medicine": "注射用炎琥宁",
+        "confidence": 0.0,
+        "status": "done",
+        "timing_sec": {
+          "ocr_angle_cls": 0.00702,
+          "ocr_angle_pred": 0.0,
+          "ocr_rknn_det": 0.043314,
+          "ocr_text_regions": 4.0,
+          "ocr_rknn_rec": 0.668941,
+          "ocr_total": 0.719311,
+          "ocr_recognizer_call": 0.719348,
+          "match": 0.003621,
+          "total": 0.722984
+        }
+      },
+      {
+        "type": "shuye",
+        "index": 0,
+        "ocr_text": {
+          "liquid": "葡萄糖注射液",
+          "concentration": "10%",
+          "volume": "100ml",
+          "raw_text": "供静导控时或隔味 萄糖注射液 10 100ml",
+          "missing": [],
+          "status": "done"
+        },
+        "liquid": "葡萄糖注射液",
+        "concentration": "10%",
+        "volume": "100ml",
+        "raw_text": "供静导控时或隔味 萄糖注射液 10 100ml",
+        "status": "done",
+        "timing_sec": {
+          "ocr_preprocess": 0.015264,
+          "ocr_angle_cls": 0.006756,
+          "ocr_rknn_det": 0.043722,
+          "ocr_text_regions": 4.0,
+          "ocr_rknn_rec": 0.625728,
+          "ocr_total": 0.691515,
+          "ocr_recognizer_call": 0.693522,
+          "total": 0.693534
+        }
+      },
+      {
+        "type": "bottle",
+        "index": 0,
+        "ocr_text": "注射用头孢曲松CcarlaxoneSodiumforinu盼邦制",
+        "candidates": [
+          "注射用头孢曲松钠",
+          "注射用头孢他啶",
+          "注射用头孢西丁钠",
+          "注射用头孢哌酮钠舒巴坦钠",
+          "注射用头孢哌酮钠舒巴坦钠（2：1）",
+          "注射用炎琥宁",
+          "灭菌注射用水",
+          "注射用更昔洛韦",
+          "注射用硫普罗宁",
+          "注射用美罗培南"
+        ],
+        "final_medicine": "注射用头孢曲松钠",
+        "confidence": 0.0,
+        "status": "done",
+        "timing_sec": {
+          "ocr_angle_cls": 0.021688,
+          "ocr_angle_pred": 0.0,
+          "ocr_rknn_det": 0.129784,
+          "ocr_text_regions": 5.0,
+          "ocr_rknn_rec": 0.817016,
+          "ocr_total": 0.968543,
+          "ocr_recognizer_call": 0.968633,
+          "match": 0.005182,
+          "total": 0.973835
+        }
+      },
+      {
+        "type": "bottle",
+        "index": 3,
+        "ocr_text": "用头抱哌酮钠舒巴坦锁2510062027/09",
+        "candidates": [
+          "注射用头孢哌酮钠舒巴坦钠（2：1）",
+          "注射用头孢哌酮钠舒巴坦钠",
+          "注射用哌拉西林钠他唑巴坦钠"
+        ],
+        "final_medicine": "注射用头孢哌酮钠舒巴坦钠（2：1）",
+        "confidence": 0.0,
+        "status": "done",
+        "timing_sec": {
+          "ocr_angle_cls": 0.00737,
+          "ocr_angle_pred": 2.0,
+          "ocr_rknn_det": 0.047249,
+          "ocr_text_regions": 3.0,
+          "ocr_rknn_rec": 0.7043,
+          "ocr_angle_rotated_score": 0.0,
+          "ocr_fallback_rknn_det": 0.043676,
+          "ocr_fallback_text_regions": 5.0,
+          "ocr_fallback_rknn_rec": 0.590659,
+          "ocr_angle_fallback_score": 30.5,
+          "ocr_angle_used_fallback": 1.0,
+          "ocr_total": 1.393335,
+          "ocr_recognizer_call": 1.393367,
+          "match": 0.004466,
+          "total": 1.397849
+        }
+      },
+      {
+        "type": "bag",
+        "index": 0,
+        "ocr_text": "魏理想",
+        "patient_name": [
+          "魏理想"
+        ],
+        "status": "done",
+        "timing_sec": {
+          "ocr_angle_cls": 0.006664,
+          "ocr_angle_pred": 0.0,
+          "ocr_rknn_det": 0.040501,
+          "ocr_text_regions": 7.0,
+          "ocr_rknn_rec": 0.29244,
+          "ocr_total": 0.339638,
+          "ocr_recognizer_call": 0.339665,
+          "match": 0.0,
+          "total": 0.339679
+        },
+        "raw_ocr_text": "复化纳注射液",
+        "simulated_patient_name": "魏理想"
+      }
+    ],
+    "counts": {
+      "bottle": 6,
+      "bag": 1,
+      "shuye": 2,
+      "total": 9
+    }
+  },
+  "runtime_sec_excluding_model_init": 3.087032
+}

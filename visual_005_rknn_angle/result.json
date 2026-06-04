@@ -1,0 +1,550 @@
+{
+  "image": "005.png",
+  "image_shape": [
+    2160,
+    3840
+  ],
+  "roi": [
+    100,
+    100,
+    3400,
+    2160
+  ],
+  "detections": [
+    {
+      "bbox": [
+        2804.45,
+        1387.1,
+        3026.17,
+        1819.21
+      ],
+      "confidence": 0.80957,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        1008.79,
+        1649.02,
+        1430.31,
+        1866.29
+      ],
+      "confidence": 0.796387,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        1697.79,
+        1435.78,
+        1900.18,
+        1852.61
+      ],
+      "confidence": 0.814453,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        2155.41,
+        1437.39,
+        2350.06,
+        1844.56
+      ],
+      "confidence": 0.822266,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        808.98,
+        1463.14,
+        990.74,
+        1813.98
+      ],
+      "confidence": 0.763672,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        2787.7,
+        512.8,
+        2960.43,
+        869.28
+      ],
+      "confidence": 0.731934,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        1135.44,
+        821.0,
+        1526.67,
+        1075.28
+      ],
+      "confidence": 0.800781,
+      "class_id": 1,
+      "class_name": "bag"
+    },
+    {
+      "bbox": [
+        1953.67,
+        499.33,
+        2817.34,
+        1247.28
+      ],
+      "confidence": 0.897461,
+      "class_id": 2,
+      "class_name": "infusion"
+    },
+    {
+      "bbox": [
+        946.91,
+        622.85,
+        1789.96,
+        1286.31
+      ],
+      "confidence": 0.926758,
+      "class_id": 2,
+      "class_name": "infusion"
+    }
+  ],
+  "counts": {
+    "bottle": 6,
+    "bag": 1,
+    "infusion": 2
+  },
+  "recognition": [
+    {
+      "type": "bag",
+      "index": 0,
+      "ocr_text": "复化钻注射液",
+      "patient_name": [],
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.006168,
+        "ocr_angle_pred": 0.0,
+        "ocr_rknn_det": 0.045584,
+        "ocr_text_regions": 4.0,
+        "ocr_rknn_rec": 0.28431,
+        "ocr_total": 0.338733,
+        "ocr_recognizer_call": 0.338767,
+        "match": 0.000615,
+        "total": 0.344718
+      }
+    },
+    {
+      "type": "bottle",
+      "index": 0,
+      "ocr_text": "注射用头孢曲松CcarlaxoneSodiumforinu盼邦制",
+      "candidates": [
+        "注射用头孢曲松钠",
+        "注射用头孢他啶",
+        "注射用头孢西丁钠",
+        "注射用炎琥宁",
+        "灭菌注射用水"
+      ],
+      "final_medicine": "注射用头孢曲松钠",
+      "confidence": 0.0,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.007566,
+        "ocr_angle_pred": 0.0,
+        "ocr_rknn_det": 0.051379,
+        "ocr_text_regions": 5.0,
+        "ocr_rknn_rec": 0.302259,
+        "ocr_total": 0.363901,
+        "ocr_recognizer_call": 0.363961,
+        "match": 0.002002,
+        "total": 0.368739
+      }
+    },
+    {
+      "type": "bottle",
+      "index": 1,
+      "ocr_text": "摄鸟氨酸[品可]F2510m【姓到]2028吨",
+      "candidates": [
+        "人免疫球蛋白",
+        "多索茶碱注射液",
+        "异甘草酸镁注射液",
+        "注射用人干扰素a2a",
+        "注射用人干扰素a2b",
+        "注射用哌拉西林钠他唑巴坦钠",
+        "注射用多种维生素",
+        "注射用头孢他啶",
+        "注射用头孢哌酮钠舒巴坦钠",
+        "注射用头孢哌酮钠舒巴坦钠（2：1）",
+        "注射用头孢曲松钠",
+        "注射用头孢西丁钠",
+        "注射用更昔洛韦",
+        "注射用氢溴酸高乌甲素",
+        "注射用水溶性维生素",
+        "注射用泮托拉唑钠",
+        "注射用炎琥宁",
+        "注射用盐酸万古霉素",
+        "注射用硫普罗宁",
+        "注射用美罗培南",
+        "注射用艾司奥拉美拉唑钠",
+        "注射用谷胱甘肽",
+        "注射用门冬氨酸鸟氨酸",
+        "灭菌注射用水",
+        "破伤风人免疫球蛋白",
+        "维生素C注射液",
+        "葡萄糖注射液",
+        "重组人血小板生成素注射液",
+        "银杏叶提取物注射液"
+      ],
+      "final_medicine": "人免疫球蛋白",
+      "confidence": 0.0,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.006888,
+        "ocr_angle_pred": 3.0,
+        "ocr_rknn_det": 0.045978,
+        "ocr_text_regions": 6.0,
+        "ocr_rknn_rec": 0.291278,
+        "ocr_total": 0.346605,
+        "ocr_recognizer_call": 0.346645,
+        "match": 0.001333,
+        "total": 0.350543
+      }
+    },
+    {
+      "type": "bottle",
+      "index": 2,
+      "ocr_text": "摄[品）2506082027.05.",
+      "candidates": [
+        "人免疫球蛋白",
+        "多索茶碱注射液",
+        "异甘草酸镁注射液",
+        "注射用人干扰素a2a",
+        "注射用人干扰素a2b",
+        "注射用哌拉西林钠他唑巴坦钠",
+        "注射用多种维生素",
+        "注射用头孢他啶",
+        "注射用头孢哌酮钠舒巴坦钠",
+        "注射用头孢哌酮钠舒巴坦钠（2：1）",
+        "注射用头孢曲松钠",
+        "注射用头孢西丁钠",
+        "注射用更昔洛韦",
+        "注射用氢溴酸高乌甲素",
+        "注射用水溶性维生素",
+        "注射用泮托拉唑钠",
+        "注射用炎琥宁",
+        "注射用盐酸万古霉素",
+        "注射用硫普罗宁",
+        "注射用美罗培南",
+        "注射用艾司奥拉美拉唑钠",
+        "注射用谷胱甘肽",
+        "注射用门冬氨酸鸟氨酸",
+        "灭菌注射用水",
+        "破伤风人免疫球蛋白",
+        "维生素C注射液",
+        "葡萄糖注射液",
+        "重组人血小板生成素注射液",
+        "银杏叶提取物注射液"
+      ],
+      "final_medicine": "人免疫球蛋白",
+      "confidence": 0.0,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.006973,
+        "ocr_angle_pred": 1.0,
+        "ocr_rknn_det": 0.044402,
+        "ocr_text_regions": 4.0,
+        "ocr_rknn_rec": 0.287474,
+        "ocr_total": 0.341294,
+        "ocr_recognizer_call": 0.341329,
+        "match": 0.001205,
+        "total": 0.345061
+      }
+    },
+    {
+      "type": "bottle",
+      "index": 3,
+      "ocr_text": "",
+      "candidates": [],
+      "final_medicine": null,
+      "confidence": 0.0,
+      "status": "ocr_empty",
+      "timing_sec": {
+        "ocr_angle_cls": 0.006974,
+        "ocr_angle_pred": 2.0,
+        "ocr_rknn_det": 0.044488,
+        "ocr_text_regions": 3.0,
+        "ocr_rknn_rec": 0.286283,
+        "ocr_total": 0.340033,
+        "ocr_recognizer_call": 0.340063,
+        "total": 0.342479
+      }
+    },
+    {
+      "type": "bottle",
+      "index": 4,
+      "ocr_text": "H川炎琥宁C502006F22027年01月哈尔筑珍餐新药有限公司",
+      "candidates": [
+        "注射用炎琥宁"
+      ],
+      "final_medicine": "注射用炎琥宁",
+      "confidence": 0.0,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.006769,
+        "ocr_angle_pred": 0.0,
+        "ocr_rknn_det": 0.044402,
+        "ocr_text_regions": 4.0,
+        "ocr_rknn_rec": 0.287461,
+        "ocr_total": 0.340406,
+        "ocr_recognizer_call": 0.340442,
+        "match": 0.001437,
+        "total": 0.343788
+      }
+    },
+    {
+      "type": "bottle",
+      "index": 5,
+      "ocr_text": "正大天销经盘异甘草酸#：2.5/1产热：251162028/天健",
+      "candidates": [
+        "异甘草酸镁注射液"
+      ],
+      "final_medicine": "异甘草酸镁注射液",
+      "confidence": 0.0,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.006784,
+        "ocr_angle_pred": 0.0,
+        "ocr_rknn_det": 0.046005,
+        "ocr_text_regions": 7.0,
+        "ocr_rknn_rec": 0.284213,
+        "ocr_total": 0.338712,
+        "ocr_recognizer_call": 0.33875,
+        "match": 0.001459,
+        "total": 0.342023
+      }
+    },
+    {
+      "type": "infusion",
+      "index": 0,
+      "ocr_text": {
+        "liquid": "葡萄糖注射液",
+        "concentration": "10%",
+        "volume": "100ml",
+        "raw_text": "供静导控时或隔味 萄糖注射液 10 100ml",
+        "missing": [],
+        "status": "done"
+      },
+      "liquid": "葡萄糖注射液",
+      "concentration": "10%",
+      "volume": "100ml",
+      "raw_text": "供静导控时或隔味 萄糖注射液 10 100ml",
+      "status": "done",
+      "timing_sec": {
+        "ocr_preprocess": 0.00632,
+        "ocr_angle_cls": 0.006804,
+        "ocr_rknn_det": 0.045264,
+        "ocr_text_regions": 4.0,
+        "ocr_rknn_rec": 0.285136,
+        "ocr_total": 0.349971,
+        "ocr_recognizer_call": 0.351941,
+        "total": 0.368173
+      }
+    },
+    {
+      "type": "infusion",
+      "index": 1,
+      "ocr_text": {
+        "liquid": null,
+        "concentration": null,
+        "volume": null,
+        "raw_text": "",
+        "missing": [
+          "liquid",
+          "concentration",
+          "volume"
+        ],
+        "status": "ocr_empty"
+      },
+      "liquid": null,
+      "concentration": null,
+      "volume": null,
+      "raw_text": "",
+      "status": "ocr_empty",
+      "timing_sec": {
+        "ocr_preprocess": 0.005548,
+        "ocr_angle_cls": 0.006388,
+        "ocr_rknn_det": 0.040401,
+        "ocr_text_regions": 0.0,
+        "ocr_total": 0.052803,
+        "ocr_recognizer_call": 0.052829,
+        "total": 0.066928
+      }
+    }
+  ],
+  "timings_sec": {
+    "read_image": 0.17162076700060425,
+    "load_yolo": 0.1259273879995817,
+    "yolo_detect": 0.11722842899962416,
+    "crop": 0.0018065839994960697,
+    "load_db_and_matchers": 0.00015837499995541293,
+    "load_ocr": 0.3624113280002348,
+    "recognition": 2.872757997000008,
+    "save_visual": 0.17583651699987968,
+    "total": 3.873356764000164
+  },
+  "timing_detail": {
+    "ocr_instances": [
+      {
+        "index": 0,
+        "thread_lock": true
+      }
+    ],
+    "task_counts": {
+      "bottle": 6,
+      "bag": 1,
+      "infusion": 2,
+      "total": 9
+    },
+    "recognition_by_type": {
+      "bag": [
+        {
+          "index": 0,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.006168,
+            "ocr_angle_pred": 0.0,
+            "ocr_rknn_det": 0.045584,
+            "ocr_text_regions": 4.0,
+            "ocr_rknn_rec": 0.28431,
+            "ocr_total": 0.338733,
+            "ocr_recognizer_call": 0.338767,
+            "match": 0.000615,
+            "total": 0.344718
+          }
+        }
+      ],
+      "bottle": [
+        {
+          "index": 0,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.007566,
+            "ocr_angle_pred": 0.0,
+            "ocr_rknn_det": 0.051379,
+            "ocr_text_regions": 5.0,
+            "ocr_rknn_rec": 0.302259,
+            "ocr_total": 0.363901,
+            "ocr_recognizer_call": 0.363961,
+            "match": 0.002002,
+            "total": 0.368739
+          }
+        },
+        {
+          "index": 1,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.006888,
+            "ocr_angle_pred": 3.0,
+            "ocr_rknn_det": 0.045978,
+            "ocr_text_regions": 6.0,
+            "ocr_rknn_rec": 0.291278,
+            "ocr_total": 0.346605,
+            "ocr_recognizer_call": 0.346645,
+            "match": 0.001333,
+            "total": 0.350543
+          }
+        },
+        {
+          "index": 2,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.006973,
+            "ocr_angle_pred": 1.0,
+            "ocr_rknn_det": 0.044402,
+            "ocr_text_regions": 4.0,
+            "ocr_rknn_rec": 0.287474,
+            "ocr_total": 0.341294,
+            "ocr_recognizer_call": 0.341329,
+            "match": 0.001205,
+            "total": 0.345061
+          }
+        },
+        {
+          "index": 3,
+          "status": "ocr_empty",
+          "timing_sec": {
+            "ocr_angle_cls": 0.006974,
+            "ocr_angle_pred": 2.0,
+            "ocr_rknn_det": 0.044488,
+            "ocr_text_regions": 3.0,
+            "ocr_rknn_rec": 0.286283,
+            "ocr_total": 0.340033,
+            "ocr_recognizer_call": 0.340063,
+            "total": 0.342479
+          }
+        },
+        {
+          "index": 4,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.006769,
+            "ocr_angle_pred": 0.0,
+            "ocr_rknn_det": 0.044402,
+            "ocr_text_regions": 4.0,
+            "ocr_rknn_rec": 0.287461,
+            "ocr_total": 0.340406,
+            "ocr_recognizer_call": 0.340442,
+            "match": 0.001437,
+            "total": 0.343788
+          }
+        },
+        {
+          "index": 5,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.006784,
+            "ocr_angle_pred": 0.0,
+            "ocr_rknn_det": 0.046005,
+            "ocr_text_regions": 7.0,
+            "ocr_rknn_rec": 0.284213,
+            "ocr_total": 0.338712,
+            "ocr_recognizer_call": 0.33875,
+            "match": 0.001459,
+            "total": 0.342023
+          }
+        }
+      ],
+      "infusion": [
+        {
+          "index": 0,
+          "status": "done",
+          "timing_sec": {
+            "ocr_preprocess": 0.00632,
+            "ocr_angle_cls": 0.006804,
+            "ocr_rknn_det": 0.045264,
+            "ocr_text_regions": 4.0,
+            "ocr_rknn_rec": 0.285136,
+            "ocr_total": 0.349971,
+            "ocr_recognizer_call": 0.351941,
+            "total": 0.368173
+          }
+        },
+        {
+          "index": 1,
+          "status": "ocr_empty",
+          "timing_sec": {
+            "ocr_preprocess": 0.005548,
+            "ocr_angle_cls": 0.006388,
+            "ocr_rknn_det": 0.040401,
+            "ocr_text_regions": 0.0,
+            "ocr_total": 0.052803,
+            "ocr_recognizer_call": 0.052829,
+            "total": 0.066928
+          }
+        }
+      ]
+    }
+  },
+  "runtime_sec": 3.33925
+}

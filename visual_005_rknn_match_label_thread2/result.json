@@ -1,0 +1,547 @@
+{
+  "image": "005.png",
+  "image_shape": [
+    2160,
+    3840
+  ],
+  "roi": [
+    100,
+    100,
+    3400,
+    2160
+  ],
+  "detections": [
+    {
+      "bbox": [
+        2804.45,
+        1387.1,
+        3026.17,
+        1819.21
+      ],
+      "confidence": 0.80957,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        1008.79,
+        1649.02,
+        1430.31,
+        1866.29
+      ],
+      "confidence": 0.796387,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        1697.79,
+        1435.78,
+        1900.18,
+        1852.61
+      ],
+      "confidence": 0.814453,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        2155.41,
+        1437.39,
+        2350.06,
+        1844.56
+      ],
+      "confidence": 0.822266,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        808.98,
+        1463.14,
+        990.74,
+        1813.98
+      ],
+      "confidence": 0.763672,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        2787.7,
+        512.8,
+        2960.43,
+        869.28
+      ],
+      "confidence": 0.731934,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        1135.44,
+        821.0,
+        1526.67,
+        1075.28
+      ],
+      "confidence": 0.800781,
+      "class_id": 1,
+      "class_name": "bag"
+    },
+    {
+      "bbox": [
+        1953.67,
+        499.33,
+        2817.34,
+        1247.28
+      ],
+      "confidence": 0.897461,
+      "class_id": 2,
+      "class_name": "infusion"
+    },
+    {
+      "bbox": [
+        946.91,
+        622.85,
+        1789.96,
+        1286.31
+      ],
+      "confidence": 0.926758,
+      "class_id": 2,
+      "class_name": "infusion"
+    }
+  ],
+  "counts": {
+    "bottle": 6,
+    "bag": 1,
+    "infusion": 2
+  },
+  "recognition": [
+    {
+      "type": "bag",
+      "index": 0,
+      "ocr_text": "复化钻注射液",
+      "patient_name": [],
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.006972,
+        "ocr_angle_pred": 0.0,
+        "ocr_rknn_det": 0.054306,
+        "ocr_text_regions": 5.0,
+        "ocr_rknn_rec": 0.525156,
+        "ocr_total": 0.589177,
+        "ocr_recognizer_call": 0.589209,
+        "match": 0.000647,
+        "total": 0.592734
+      }
+    },
+    {
+      "type": "bottle",
+      "index": 0,
+      "ocr_text": "注射用头孢曲松CcarlaxoneSodiumforinu盼邦制",
+      "candidates": [
+        "注射用头孢曲松钠",
+        "注射用头孢他啶",
+        "注射用头孢西丁钠",
+        "注射用头孢哌酮钠舒巴坦钠",
+        "注射用头孢哌酮钠舒巴坦钠（2：1）",
+        "注射用炎琥宁",
+        "灭菌注射用水",
+        "注射用更昔洛韦",
+        "注射用硫普罗宁",
+        "注射用美罗培南"
+      ],
+      "final_medicine": "注射用头孢曲松钠",
+      "confidence": 0.0,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.007595,
+        "ocr_angle_pred": 0.0,
+        "ocr_rknn_det": 0.056685,
+        "ocr_text_regions": 5.0,
+        "ocr_rknn_rec": 0.579056,
+        "ocr_total": 0.646155,
+        "ocr_recognizer_call": 0.646205,
+        "match": 0.007489,
+        "total": 0.656638
+      }
+    },
+    {
+      "type": "bottle",
+      "index": 1,
+      "ocr_text": "摄鸟氨酸[品可]F2510m【姓到]2028吨",
+      "candidates": [
+        "注射用门冬氨酸鸟氨酸"
+      ],
+      "final_medicine": "注射用门冬氨酸鸟氨酸",
+      "confidence": 0.0,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.022138,
+        "ocr_angle_pred": 3.0,
+        "ocr_rknn_det": 0.114934,
+        "ocr_text_regions": 6.0,
+        "ocr_rknn_rec": 0.698952,
+        "ocr_angle_rotated_score": 28.5,
+        "ocr_angle_used_fallback": 0.0,
+        "ocr_total": 0.842519,
+        "ocr_recognizer_call": 0.842571,
+        "match": 0.003157,
+        "total": 0.852356
+      }
+    },
+    {
+      "type": "bottle",
+      "index": 2,
+      "ocr_text": "注射SCefts1.0g",
+      "candidates": [
+        "注射用头孢他啶",
+        "注射用头孢曲松钠",
+        "注射用头孢西丁钠",
+        "注射用头孢哌酮钠舒巴坦钠（2：1）",
+        "注射用头孢哌酮钠舒巴坦钠"
+      ],
+      "final_medicine": "注射用头孢他啶",
+      "confidence": 0.0,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.021759,
+        "ocr_angle_pred": 1.0,
+        "ocr_rknn_det": 0.123038,
+        "ocr_text_regions": 4.0,
+        "ocr_rknn_rec": 0.670844,
+        "ocr_angle_rotated_score": 6.0,
+        "ocr_fallback_rknn_det": 0.049363,
+        "ocr_fallback_text_regions": 5.0,
+        "ocr_fallback_rknn_rec": 0.649929,
+        "ocr_angle_fallback_score": 10.75,
+        "ocr_angle_used_fallback": 1.0,
+        "ocr_total": 1.523926,
+        "ocr_recognizer_call": 1.52396,
+        "match": 0.003476,
+        "total": 1.533809
+      }
+    },
+    {
+      "type": "bottle",
+      "index": 3,
+      "ocr_text": "用头抱哌酮钠舒巴坦锁2510062027/09",
+      "candidates": [
+        "注射用头孢哌酮钠舒巴坦钠（2：1）",
+        "注射用头孢哌酮钠舒巴坦钠",
+        "注射用哌拉西林钠他唑巴坦钠"
+      ],
+      "final_medicine": "注射用头孢哌酮钠舒巴坦钠（2：1）",
+      "confidence": 0.0,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.007135,
+        "ocr_angle_pred": 2.0,
+        "ocr_rknn_det": 0.046807,
+        "ocr_text_regions": 3.0,
+        "ocr_rknn_rec": 0.607247,
+        "ocr_angle_rotated_score": 0.0,
+        "ocr_fallback_rknn_det": 0.047953,
+        "ocr_fallback_text_regions": 5.0,
+        "ocr_fallback_rknn_rec": 0.492746,
+        "ocr_angle_fallback_score": 30.5,
+        "ocr_angle_used_fallback": 1.0,
+        "ocr_total": 1.206744,
+        "ocr_recognizer_call": 1.206774,
+        "match": 0.004562,
+        "total": 1.213857
+      }
+    },
+    {
+      "type": "bottle",
+      "index": 4,
+      "ocr_text": "H川炎琥宁C502006F22027年01月哈尔筑珍餐新药有限公司",
+      "candidates": [
+        "注射用炎琥宁"
+      ],
+      "final_medicine": "注射用炎琥宁",
+      "confidence": 0.0,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.007251,
+        "ocr_angle_pred": 0.0,
+        "ocr_rknn_det": 0.04702,
+        "ocr_text_regions": 4.0,
+        "ocr_rknn_rec": 0.675253,
+        "ocr_total": 0.731354,
+        "ocr_recognizer_call": 0.731386,
+        "match": 0.003556,
+        "total": 0.736982
+      }
+    },
+    {
+      "type": "bottle",
+      "index": 5,
+      "ocr_text": "正大天销经盘异甘草酸#：2.5/1产热：251162028/天健",
+      "candidates": [
+        "异甘草酸镁注射液"
+      ],
+      "final_medicine": "异甘草酸镁注射液",
+      "confidence": 0.0,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.007277,
+        "ocr_angle_pred": 0.0,
+        "ocr_rknn_det": 0.050616,
+        "ocr_text_regions": 7.0,
+        "ocr_rknn_rec": 0.452553,
+        "ocr_total": 0.51236,
+        "ocr_recognizer_call": 0.512399,
+        "match": 0.003482,
+        "total": 0.517816
+      }
+    },
+    {
+      "type": "infusion",
+      "index": 0,
+      "ocr_text": {
+        "liquid": "葡萄糖注射液",
+        "concentration": "10%",
+        "volume": "100ml",
+        "raw_text": "供静导控时或隔味 萄糖注射液 10 100ml",
+        "missing": [],
+        "status": "done"
+      },
+      "liquid": "葡萄糖注射液",
+      "concentration": "10%",
+      "volume": "100ml",
+      "raw_text": "供静导控时或隔味 萄糖注射液 10 100ml",
+      "status": "done",
+      "timing_sec": {
+        "ocr_preprocess": 0.005928,
+        "ocr_angle_cls": 0.007669,
+        "ocr_rknn_det": 0.050247,
+        "ocr_text_regions": 4.0,
+        "ocr_rknn_rec": 0.579711,
+        "ocr_total": 0.650118,
+        "ocr_recognizer_call": 0.651993,
+        "total": 0.668264
+      }
+    },
+    {
+      "type": "infusion",
+      "index": 1,
+      "ocr_text": {
+        "liquid": null,
+        "concentration": null,
+        "volume": null,
+        "raw_text": "",
+        "missing": [
+          "liquid",
+          "concentration",
+          "volume"
+        ],
+        "status": "ocr_empty"
+      },
+      "liquid": null,
+      "concentration": null,
+      "volume": null,
+      "raw_text": "",
+      "status": "ocr_empty",
+      "timing_sec": {
+        "ocr_preprocess": 0.005503,
+        "ocr_angle_cls": 0.006687,
+        "ocr_rknn_det": 0.043295,
+        "ocr_text_regions": 0.0,
+        "ocr_rknn_rec": 0.0,
+        "ocr_total": 0.056045,
+        "ocr_recognizer_call": 0.056097,
+        "total": 0.070477
+      }
+    }
+  ],
+  "timings_sec": {
+    "read_image": 0.1717368509998778,
+    "load_yolo": 0.1381867219988635,
+    "yolo_detect": 0.11731680299999425,
+    "crop": 0.0017870419997052522,
+    "load_db_and_matchers": 0.00017120899974543136,
+    "load_ocr": 1.0788173589990038,
+    "recognition": 2.539915254999869,
+    "save_visual": 0.23161631500079238,
+    "total": 4.325171810000029
+  },
+  "timing_detail": {
+    "ocr_instances": [
+      {
+        "index": 0,
+        "thread_lock": true
+      },
+      {
+        "index": 1,
+        "thread_lock": true
+      },
+      {
+        "index": 2,
+        "thread_lock": true
+      }
+    ],
+    "task_counts": {
+      "bottle": 6,
+      "bag": 1,
+      "infusion": 2,
+      "total": 9
+    },
+    "recognition_by_type": {
+      "bag": [
+        {
+          "index": 0,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.006972,
+            "ocr_angle_pred": 0.0,
+            "ocr_rknn_det": 0.054306,
+            "ocr_text_regions": 5.0,
+            "ocr_rknn_rec": 0.525156,
+            "ocr_total": 0.589177,
+            "ocr_recognizer_call": 0.589209,
+            "match": 0.000647,
+            "total": 0.592734
+          }
+        }
+      ],
+      "bottle": [
+        {
+          "index": 0,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.007595,
+            "ocr_angle_pred": 0.0,
+            "ocr_rknn_det": 0.056685,
+            "ocr_text_regions": 5.0,
+            "ocr_rknn_rec": 0.579056,
+            "ocr_total": 0.646155,
+            "ocr_recognizer_call": 0.646205,
+            "match": 0.007489,
+            "total": 0.656638
+          }
+        },
+        {
+          "index": 1,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.022138,
+            "ocr_angle_pred": 3.0,
+            "ocr_rknn_det": 0.114934,
+            "ocr_text_regions": 6.0,
+            "ocr_rknn_rec": 0.698952,
+            "ocr_angle_rotated_score": 28.5,
+            "ocr_angle_used_fallback": 0.0,
+            "ocr_total": 0.842519,
+            "ocr_recognizer_call": 0.842571,
+            "match": 0.003157,
+            "total": 0.852356
+          }
+        },
+        {
+          "index": 2,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.021759,
+            "ocr_angle_pred": 1.0,
+            "ocr_rknn_det": 0.123038,
+            "ocr_text_regions": 4.0,
+            "ocr_rknn_rec": 0.670844,
+            "ocr_angle_rotated_score": 6.0,
+            "ocr_fallback_rknn_det": 0.049363,
+            "ocr_fallback_text_regions": 5.0,
+            "ocr_fallback_rknn_rec": 0.649929,
+            "ocr_angle_fallback_score": 10.75,
+            "ocr_angle_used_fallback": 1.0,
+            "ocr_total": 1.523926,
+            "ocr_recognizer_call": 1.52396,
+            "match": 0.003476,
+            "total": 1.533809
+          }
+        },
+        {
+          "index": 3,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.007135,
+            "ocr_angle_pred": 2.0,
+            "ocr_rknn_det": 0.046807,
+            "ocr_text_regions": 3.0,
+            "ocr_rknn_rec": 0.607247,
+            "ocr_angle_rotated_score": 0.0,
+            "ocr_fallback_rknn_det": 0.047953,
+            "ocr_fallback_text_regions": 5.0,
+            "ocr_fallback_rknn_rec": 0.492746,
+            "ocr_angle_fallback_score": 30.5,
+            "ocr_angle_used_fallback": 1.0,
+            "ocr_total": 1.206744,
+            "ocr_recognizer_call": 1.206774,
+            "match": 0.004562,
+            "total": 1.213857
+          }
+        },
+        {
+          "index": 4,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.007251,
+            "ocr_angle_pred": 0.0,
+            "ocr_rknn_det": 0.04702,
+            "ocr_text_regions": 4.0,
+            "ocr_rknn_rec": 0.675253,
+            "ocr_total": 0.731354,
+            "ocr_recognizer_call": 0.731386,
+            "match": 0.003556,
+            "total": 0.736982
+          }
+        },
+        {
+          "index": 5,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.007277,
+            "ocr_angle_pred": 0.0,
+            "ocr_rknn_det": 0.050616,
+            "ocr_text_regions": 7.0,
+            "ocr_rknn_rec": 0.452553,
+            "ocr_total": 0.51236,
+            "ocr_recognizer_call": 0.512399,
+            "match": 0.003482,
+            "total": 0.517816
+          }
+        }
+      ],
+      "infusion": [
+        {
+          "index": 0,
+          "status": "done",
+          "timing_sec": {
+            "ocr_preprocess": 0.005928,
+            "ocr_angle_cls": 0.007669,
+            "ocr_rknn_det": 0.050247,
+            "ocr_text_regions": 4.0,
+            "ocr_rknn_rec": 0.579711,
+            "ocr_total": 0.650118,
+            "ocr_recognizer_call": 0.651993,
+            "total": 0.668264
+          }
+        },
+        {
+          "index": 1,
+          "status": "ocr_empty",
+          "timing_sec": {
+            "ocr_preprocess": 0.005503,
+            "ocr_angle_cls": 0.006687,
+            "ocr_rknn_det": 0.043295,
+            "ocr_text_regions": 0.0,
+            "ocr_rknn_rec": 0.0,
+            "ocr_total": 0.056045,
+            "ocr_recognizer_call": 0.056097,
+            "total": 0.070477
+          }
+        }
+      ]
+    }
+  },
+  "runtime_sec": 3.062372
+}

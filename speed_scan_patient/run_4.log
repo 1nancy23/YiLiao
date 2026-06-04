@@ -1,0 +1,59 @@
+/home/forlinx/Models/Python2/lib/python3.9/site-packages/fuzzywuzzy/fuzz.py:11: UserWarning: Using slow pure-python SequenceMatcher. Install python-Levenshtein to remove this warning
+  warnings.warn('Using slow pure-python SequenceMatcher. Install python-Levenshtein to remove this warning')
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+W0527 09:35:03.884708  9445 default_variables.cpp:433] Fail to open /proc/self/io: No such file or directory [2]
+W rknn-toolkit-lite2 version: 2.3.2
+W Query dynamic range failed. Ret code: RKNN_ERR_MODEL_INVALID. (If it is a static shape RKNN model, please ignore the above warning message.)
+W rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+I RKNN: [09:35:05.720] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [09:35:05.720] RKNN Driver Information, version: 0.9.8
+I RKNN: [09:35:05.721] RKNN Model Information, version: 6, toolkit version: 1.6.0+81f21f4d(compiler version: 1.6.0 (585b3edcf@2023-12-11T07:56:14)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: static_shape
+W RKNN: [09:35:05.763] query RKNN_QUERY_INPUT_DYNAMIC_RANGE error, rknn model is static shape type, please export rknn with dynamic_shapes
+I RKNN: [09:35:05.972] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [09:35:05.972] RKNN Driver Information, version: 0.9.8
+I RKNN: [09:35:05.972] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+I RKNN: [09:35:06.079] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [09:35:06.079] RKNN Driver Information, version: 0.9.8
+I RKNN: [09:35:06.079] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+I RKNN: [09:35:06.236] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [09:35:06.236] RKNN Driver Information, version: 0.9.8
+I RKNN: [09:35:06.236] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+I RKNN: [09:35:06.336] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [09:35:06.336] RKNN Driver Information, version: 0.9.8
+I RKNN: [09:35:06.336] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+I RKNN: [09:35:06.445] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [09:35:06.445] RKNN Driver Information, version: 0.9.8
+I RKNN: [09:35:06.446] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+I RKNN: [09:35:06.597] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [09:35:06.597] RKNN Driver Information, version: 0.9.8
+I RKNN: [09:35:06.597] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+I RKNN: [09:35:06.697] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [09:35:06.697] RKNN Driver Information, version: 0.9.8
+I RKNN: [09:35:06.698] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+I RKNN: [09:35:06.807] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [09:35:06.807] RKNN Driver Information, version: 0.9.8
+I RKNN: [09:35:06.808] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+I RKNN: [09:35:06.961] RKNW rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+0
+N Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [09:35:06.961] RKNN Driver Information, version: 0.9.8
+I RKNN: [09:35:06.961] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+I RKNN: [09:35:07.061] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [09:35:07.061] RKNN Driver Information, version: 0.9.8
+I RKNN: [09:35:07.061] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+I RKNN: [09:35:07.171] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [09:35:07.171] RKNN Driver Information, version: 0.9.8
+I RKNN: [09:35:07.171] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+I RKNN: [09:35:07.417] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [09:35:07.417] RKNN Driver Information, version: 0.9.8
+I RKNN: [09:35:07.417] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape

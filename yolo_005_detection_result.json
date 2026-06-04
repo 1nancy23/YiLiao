@@ -1,0 +1,134 @@
+{
+  "image": "005.png",
+  "image_shape": [
+    2160,
+    3840
+  ],
+  "roi": [
+    100,
+    100,
+    3400,
+    2160
+  ],
+  "detections": [
+    {
+      "bbox": [
+        2804.45,
+        1387.1,
+        3026.17,
+        1819.21
+      ],
+      "confidence": 0.80957,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        1008.79,
+        1649.02,
+        1430.31,
+        1866.29
+      ],
+      "confidence": 0.796387,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        1697.79,
+        1435.78,
+        1900.18,
+        1852.61
+      ],
+      "confidence": 0.814453,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        2155.41,
+        1437.39,
+        2350.06,
+        1844.56
+      ],
+      "confidence": 0.822266,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        808.98,
+        1463.14,
+        990.74,
+        1813.98
+      ],
+      "confidence": 0.763672,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        2787.7,
+        512.8,
+        2960.43,
+        869.28
+      ],
+      "confidence": 0.731934,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        1135.44,
+        821.0,
+        1526.67,
+        1075.28
+      ],
+      "confidence": 0.800781,
+      "class_id": 1,
+      "class_name": "bag"
+    },
+    {
+      "bbox": [
+        1953.67,
+        499.33,
+        2817.34,
+        1247.28
+      ],
+      "confidence": 0.897461,
+      "class_id": 2,
+      "class_name": "infusion"
+    },
+    {
+      "bbox": [
+        946.91,
+        622.85,
+        1789.96,
+        1286.31
+      ],
+      "confidence": 0.926758,
+      "class_id": 2,
+      "class_name": "infusion"
+    }
+  ],
+  "counts": {
+    "bottle": 6,
+    "bag": 1,
+    "infusion": 2
+  },
+  "recognition": [],
+  "timings_sec": {
+    "read_image": 0.1706474759998855,
+    "load_yolo": 0.14242551500001355,
+    "yolo_detect": 0.11770880400035821,
+    "crop": 0.0018010419998972793,
+    "save_visual": 0.18750493599964102,
+    "total": 0.6202274789998228
+  },
+  "timing_detail": {
+    "ocr_instances": [],
+    "task_counts": {},
+    "recognition_by_type": {}
+  },
+  "runtime_sec": 0.477662
+}

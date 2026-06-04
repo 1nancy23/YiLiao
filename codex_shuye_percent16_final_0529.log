@@ -1,0 +1,207 @@
+/home/forlinx/Models/Python2/lib/python3.9/site-packages/fuzzywuzzy/fuzz.py:11: UserWarning: Using slow pure-python SequenceMatcher. Install python-Levenshtein to remove this warning
+  warnings.warn('Using slow pure-python SequenceMatcher. Install python-Levenshtein to remove this warning')
+W rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+W rknn-toolkit-lite2 version: 2.3.2
+W Query dynamic range failed. Ret code: RKNN_ERR_MODEL_INVALID. (If it is a static shape RKNN model, please ignore the above warning message.)
+数据库连接成功
+✅ 已加载 30 个药品名称
+✅ 已加载 20 个患者名称
+所有患者 ['魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想']
+[特征缓存] 已从 ./single_image_feature_cache.pkl 加载 29 种药品特征
+[初始化完成] 已加载 29 种药品特征到内存
+初始化 RKNN OCR 实例池...
+RKNN OCR 初始化完成: 1 个实例
+实时运行参数:
+  recognition_workers: 1
+  trigger_interval: 5.0
+  max_frames: 90
+  quiet_ocr: True
+  headless: True
+  ocr_instances: 1
+  mixed_ocr_batch: 1
+
+============================================================
+启动实时视频识别: YOLO + RKNN OCR + SIFT
+============================================================
+RTSP 参数:
+{'username': 'admin', 'password': 'a1b2c3d4', 'ip_address': '192.168.254.5', 'port': '554', 'channel': '201'}
+📋 OCR 模型分配:
+  OCR/SIFT 后台识别: 单线程顺序处理
+  实际 OCR 实例: 1 个
+  使用第 1 个 OCR 实例处理所有药瓶/药袋/输液袋任务
+  headless显示模式: True
+RTSP: rtsp://admin:****@192.168.254.5:554/Streaming/Channels/201
+🔄 正在连接 RTSP 流...
+✅ RTSP连接成功！分辨率: 3840x2160, 帧率: 20.0
+Connecting RTSP stream...
+0
+
+============================================================
+🚀 实时目标检测已启动 YOLOv8 + 切片处理
+  批量帧数: 1
+  自动触发间隔: 5.0 秒
+  按键: 'q'-退出  's'-截图  'r'-切换模式
+============================================================
+
+[Detection Timing last 30] detect_batch:avg=0.13s,max=0.17s,p95=0.16s | detect_runtime_excluding_model_init:avg=0.13s,max=0.17s,p95=0.16s | fps:avg=7.48s,max=8.21s,p95=8.21s | frames:avg=1.00s,max=1.00s,p95=1.00s
+
+⏰ 定时触发 → 后台线程已启动
+最清晰帧: 批次 2/2 中的第 1 张
+检测结果: 药袋 1 个, 药瓶 3 个, 输液袋 4 个
+
+============================================================
+[单线程顺序处理] 共 8 个任务: 药瓶 3, 药袋 1, 输液袋 4
+============================================================
+🔍 药品匹配模式，查询：批准文号：国药准字H2006瑞甘注射用门冬复ORNITHINEASPARTAT武汉启瑞药业有限公
+[警告] 以下药品未在缓存中找到: ['注射用头孢唑啉钠']
+药瓶旋转
+[特征提取耗时] 0.0347 秒
+[分类耗时] 0.0894 秒
+🔍 药品匹配模式，查询：【批准文号】系头孢哌酮钠舒巴坦钠2510062027/09也
+[警告] 以下药品未在缓存中找到: ['注射用头孢唑啉钠']
+药瓶旋转
+[特征提取耗时] 0.0292 秒
+[分类耗时] 0.0571 秒
+🔍 药品匹配模式，查询：号1
+药瓶旋转
+[特征提取耗时] 0.0391 秒
+[分类耗时] 0.0626 秒
+🔍 患者匹配模式，查询：赵二虎
+
+[Timing Summary last 1] background_total:avg=3.59s,max=3.59s,p95=3.59s | bag_count:avg=1.00s,max=1.00s,p95=1.00s | bag_match:avg=0.00s,max=0.00s,p95=0.00s | bag_ocr_angle_cls:avg=0.01s,max=0.01s,p95=0.01s | bag_ocr_bag_angle_cls:avg=0.01s,max=0.01s,p95=0.01s | bag_ocr_bag_angle_pred:avg=0.00s,max=0.00s,p95=0.00s | bag_ocr_bag_name_roi_extract:avg=0.20s,max=0.20s,p95=0.20s | bag_ocr_bottle_angle_cls:avg=0.04s,max=0.04s,p95=0.04s | bag_ocr_bottle_angle_pred:avg=3.00s,max=3.00s,p95=3.00s | bag_ocr_mixed_rknn_det:avg=0.89s,max=0.89s,p95=0.89s | bag_ocr_mixed_rknn_det_infer:avg=0.73s,max=0.73s,p95=0.73s | bag_ocr_mixed_rknn_rec:avg=1.81s,max=1.81s,p95=1.81s | bag_ocr_mixed_text_regions:avg=65.00s,max=65.00s,p95=65.00s | bag_ocr_shuye_candidate_rois:avg=4.00s,max=4.00s,p95=4.00s | bag_ocr_shuye_preprocess:avg=0.04s,max=0.04s,p95=0.04s | bag_ocr_shuye_roi_angle_cls:avg=0.03s,max=0.03s,p95=0.03s | bag_ocr_shuye_roi_angle_pred:avg=9.00s,max=9.00s,p95=9.00s | bag_total:avg=0.00s,max=0.00s,p95=0.00s | bottle_classify:avg=0.21s,max=0.21s,p95=0.21s | bottle_count:avg=3.00s,max=3.00s,p95=3.00s | bottle_match:avg=0.02s,max=0.02s,p95=0.02s | bottle_ocr_angle_cls:avg=0.02s,max=0.02s,p95=0.02s | bottle_ocr_bag_angle_cls:avg=0.01s,max=0.01s,p95=0.01s | bottle_ocr_bag_angle_pred:avg=0.00s,max=0.00s,p95=0.00s | bottle_ocr_bag_name_roi_extract:avg=0.20s,max=0.20s,p95=0.20s | bottle_ocr_bottle_angle_cls:avg=0.04s,max=0.04s,p95=0.04s | bottle_ocr_bottle_angle_pred:avg=3.00s,max=3.00s,p95=3.00s | bottle_ocr_mixed_rknn_det:avg=0.89s,max=0.89s,p95=0.89s | bottle_ocr_mixed_rknn_det_infer:avg=0.73s,max=0.73s,p95=0.73s | bottle_ocr_mixed_rknn_rec:avg=1.81s,max=1.81s,p95=1.81s | bottle_ocr_mixed_text_regions:avg=65.00s,max=65.00s,p95=65.00s | bottle_ocr_shuye_candidate_rois:avg=12.00s,max=12.00s,p95=12.00s | bottle_ocr_shuye_preprocess:avg=0.04s,max=0.04s,p95=0.04s | bottle_ocr_shuye_roi_angle_cls:avg=0.09s,max=0.09s,p95=0.09s | bottle_ocr_shuye_roi_angle_pred:avg=27.00s,max=27.00s,p95=27.00s | bottle_total:avg=0.23s,max=0.23s,p95=0.23s | crop:avg=0.01s,max=0.01s,p95=0.01s | prepare_and_recognition:avg=3.30s,max=3.30s,p95=3.30s | recognition_tasks:avg=3.59s,max=3.59s,p95=3.59s | runtime_excluding_model_init:avg=3.59s,max=3.59s,p95=3.59s | select_sharpest:avg=0.29s,max=0.29s,p95=0.29s | shuye_count:avg=4.00s,max=4.00s,p95=4.00s | shuye_ocr_angle_cls:avg=0.03s,max=0.03s,p95=0.03s | shuye_ocr_bag_angle_cls:avg=0.01s,max=0.01s,p95=0.01s | shuye_ocr_bag_angle_pred:avg=0.00s,max=0.00s,p95=0.00s | shuye_ocr_bag_name_roi_extract:avg=0.20s,max=0.20s,p95=0.20s | shuye_ocr_bottle_angle_cls:avg=0.04s,max=0.04s,p95=0.04s | shuye_ocr_bottle_angle_pred:avg=3.00s,max=3.00s,p95=3.00s | shuye_ocr_mixed_rknn_det:avg=0.89s,max=0.89s,p95=0.89s | shuye_ocr_mixed_rknn_det_infer:avg=0.73s,max=0.73s,p95=0.73s | shuye_ocr_mixed_rknn_rec:avg=1.81s,max=1.81s,p95=1.81s | shuye_ocr_mixed_text_regions:avg=65.00s,max=65.00s,p95=65.00s | shuye_ocr_shuye_candidate_rois:avg=16.00s,max=16.00s,p95=16.00s | shuye_ocr_shuye_preprocess:avg=0.04s,max=0.04s,p95=0.04s | shuye_ocr_shuye_roi_angle_cls:avg=0.12s,max=0.12s,p95=0.12s | shuye_ocr_shuye_roi_angle_pred:avg=36.00s,max=36.00s,p95=36.00s | shuye_total:avg=0.00s,max=0.00s,p95=0.00s | target_count:avg=8.00s,max=8.00s,p95=8.00s
+
+[Step Timing Detail]
+  batch: background_total=3.5920s | bag_count=1.0000s | bag_match=0.0007s | bag_ocr_angle_cls=0.0076s | bag_ocr_bag_angle_cls=0.0076s | bag_ocr_bag_angle_pred=0.0000s | bag_ocr_bag_name_roi_extract=0.1967s | bag_ocr_bottle_angle_cls=0.0431s | bag_ocr_bottle_angle_pred=3.0000s | bag_ocr_mixed_rknn_det=0.8882s | bag_ocr_mixed_rknn_det_infer=0.7330s | bag_ocr_mixed_rknn_rec=1.8088s | bag_ocr_mixed_text_regions=65.0000s | bag_ocr_shuye_candidate_rois=4.0000s | bag_ocr_shuye_preprocess=0.0408s | bag_ocr_shuye_roi_angle_cls=0.0309s | bag_ocr_shuye_roi_angle_pred=9.0000s | bag_total=0.0007s | bottle_classify=0.2092s | bottle_count=3.0000s | bottle_match=0.0173s | bottle_ocr_angle_cls=0.0227s | bottle_ocr_bag_angle_cls=0.0076s | bottle_ocr_bag_angle_pred=0.0000s | bottle_ocr_bag_name_roi_extract=0.1967s | bottle_ocr_bottle_angle_cls=0.0431s | bottle_ocr_bottle_angle_pred=3.0000s | bottle_ocr_mixed_rknn_det=0.8882s | bottle_ocr_mixed_rknn_det_infer=0.7330s | bottle_ocr_mixed_rknn_rec=1.8088s | bottle_ocr_mixed_text_regions=65.0000s | bottle_ocr_shuye_candidate_rois=12.0000s | bottle_ocr_shuye_preprocess=0.0408s | bottle_ocr_shuye_roi_angle_cls=0.0927s | bottle_ocr_shuye_roi_angle_pred=27.0000s | bottle_total=0.2296s | crop=0.0062s | prepare_and_recognition=3.2968s | recognition_tasks=3.5920s | runtime_excluding_model_init=3.5920s | select_sharpest=0.2891s | shuye_count=4.0000s | shuye_ocr_angle_cls=0.0302s | shuye_ocr_bag_angle_cls=0.0076s | shuye_ocr_bag_angle_pred=0.0000s | shuye_ocr_bag_name_roi_extract=0.1967s | shuye_ocr_bottle_angle_cls=0.0431s | shuye_ocr_bottle_angle_pred=3.0000s | shuye_ocr_mixed_rknn_det=0.8882s | shuye_ocr_mixed_rknn_det_infer=0.7330s | shuye_ocr_mixed_rknn_rec=1.8088s | shuye_ocr_mixed_text_regions=65.0000s | shuye_ocr_shuye_candidate_rois=16.0000s | shuye_ocr_shuye_preprocess=0.0408s | shuye_ocr_shuye_roi_angle_cls=0.1236s | shuye_ocr_shuye_roi_angle_pred=36.0000s | shuye_total=0.0000s | target_count=8.0000s
+  bag#1: status=done, result=['赵二虎'], timing: match=0.0007s | ocr_angle_cls=0.0076s | ocr_bag_angle_cls=0.0076s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.1967s | ocr_bottle_angle_cls=0.0431s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8882s | ocr_mixed_rknn_det_infer=0.7330s | ocr_mixed_rknn_rec=1.8088s | ocr_mixed_text_regions=65.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0408s | ocr_shuye_roi_angle_cls=0.0309s | ocr_shuye_roi_angle_pred=9.0000s | total=0.0007s
+  bottle#1: status=done, result=注射用门冬氨酸鸟氨酸, timing: classify=0.0894s | match=0.0096s | ocr_angle_cls=0.0076s | ocr_bag_angle_cls=0.0076s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.1967s | ocr_bottle_angle_cls=0.0431s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8882s | ocr_mixed_rknn_det_infer=0.7330s | ocr_mixed_rknn_rec=1.8088s | ocr_mixed_text_regions=65.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0408s | ocr_shuye_roi_angle_cls=0.0309s | ocr_shuye_roi_angle_pred=9.0000s | total=0.1019s
+    decision: sift_agrees_with_ocr_top1
+  bottle#2: status=done, result=注射用头孢哌酮钠舒巴坦钠, timing: classify=0.0571s | match=0.0049s | ocr_angle_cls=0.0076s | ocr_bag_angle_cls=0.0076s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.1967s | ocr_bottle_angle_cls=0.0431s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8882s | ocr_mixed_rknn_det_infer=0.7330s | ocr_mixed_rknn_rec=1.8088s | ocr_mixed_text_regions=65.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0408s | ocr_shuye_roi_angle_cls=0.0309s | ocr_shuye_roi_angle_pred=9.0000s | total=0.0621s
+    decision: strong_sift_in_ocr_top3
+  bottle#3: status=done, result=注射用头孢哌酮钠舒巴坦钠（2：1）, timing: classify=0.0627s | match=0.0028s | ocr_angle_cls=0.0076s | ocr_bag_angle_cls=0.0076s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.1967s | ocr_bottle_angle_cls=0.0431s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8882s | ocr_mixed_rknn_det_infer=0.7330s | ocr_mixed_rknn_rec=1.8088s | ocr_mixed_text_regions=65.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0408s | ocr_shuye_roi_angle_cls=0.0309s | ocr_shuye_roi_angle_pred=9.0000s | total=0.0655s
+    decision: sift_agrees_with_ocr_top1
+  shuye#1: status=done, result=葡萄糖注射液, timing: ocr_angle_cls=0.0076s | ocr_bag_angle_cls=0.0076s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.1967s | ocr_bottle_angle_cls=0.0431s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8882s | ocr_mixed_rknn_det_infer=0.7330s | ocr_mixed_rknn_rec=1.8088s | ocr_mixed_text_regions=65.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0408s | ocr_shuye_roi_angle_cls=0.0309s | ocr_shuye_roi_angle_pred=9.0000s | total=0.0000s
+  shuye#2: status=done, result=葡萄糖注射液, timing: ocr_angle_cls=0.0076s | ocr_bag_angle_cls=0.0076s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.1967s | ocr_bottle_angle_cls=0.0431s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8882s | ocr_mixed_rknn_det_infer=0.7330s | ocr_mixed_rknn_rec=1.8088s | ocr_mixed_text_regions=65.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0408s | ocr_shuye_roi_angle_cls=0.0309s | ocr_shuye_roi_angle_pred=9.0000s | total=0.0000s
+  shuye#3: status=done, result=葡萄糖注射液, timing: ocr_angle_cls=0.0076s | ocr_bag_angle_cls=0.0076s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.1967s | ocr_bottle_angle_cls=0.0431s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8882s | ocr_mixed_rknn_det_infer=0.7330s | ocr_mixed_rknn_rec=1.8088s | ocr_mixed_text_regions=65.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0408s | ocr_shuye_roi_angle_cls=0.0309s | ocr_shuye_roi_angle_pred=9.0000s | total=0.0000s
+  shuye#4: status=ocr_empty, result=, timing: ocr_angle_cls=0.0076s | ocr_bag_angle_cls=0.0076s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.1967s | ocr_bottle_angle_cls=0.0431s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8882s | ocr_mixed_rknn_det_infer=0.7330s | ocr_mixed_rknn_rec=1.8088s | ocr_mixed_text_regions=65.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0408s | ocr_shuye_roi_angle_cls=0.0309s | ocr_shuye_roi_angle_pred=9.0000s | total=0.0000s
+
+[单线程顺序处理完成] 耗时: 3.59s, 完成任务: 8/8
+
+============================================================
+【处理结果汇总】
+  药瓶: 3 个
+  药袋: 1 个
+  输液袋: 4 个
+============================================================
+  药瓶 1: 注射用门冬氨酸鸟氨酸 (方式: sift_template, 置信度: 0.0487, SIFT good=4, score=0.0116)
+  药瓶 2: 注射用头孢哌酮钠舒巴坦钠 (方式: sift_template, 置信度: 0.0494, SIFT good=4, score=0.0110)
+  药瓶 3: 注射用头孢哌酮钠舒巴坦钠（2：1） (方式: sift_template, 置信度: 0.0045, SIFT good=1, score=0.0025)
+
+🏥 识别药品（去重后）: ['注射用头孢哌酮钠舒巴坦钠（2：1）', '注射用头孢哌酮钠舒巴坦钠', '注射用门冬氨酸鸟氨酸']
+  药袋 1: 患者 ['赵二虎']
+
+👤 患者姓名: ['赵二虎']
+  输液袋 1: 液体=葡萄糖注射液, 浓度=10%, 容量=100ml, 状态=done
+  输液袋 2: 液体=葡萄糖注射液, 浓度=5%, 容量=50ml, 状态=done
+  输液袋 3: 液体=葡萄糖注射液, 浓度=5%, 容量=50ml, 状态=done
+  输液袋 4: 液体=None, 浓度=None, 容量=None, 状态=ocr_empty
+
+💧 输液袋信息: [{'liquid': '葡萄糖注射液', 'concentration': '10%', 'volume': '100ml', 'raw_text': '供静脉注射或滴注 批准文号： 成份： 葡萄糖注射液 规格： GlucoseInjection.. 100ml:10g 数藏： 密闭保存。 100ml 00', 'missing': [], 'status': 'done'}, {'liquid': '葡萄糖注射液', 'concentration': '5%', 'volume': '50ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 GlucoseInjection S 5% 50ml應', 'missing': [], 'status': 'done'}, {'liquid': '葡萄糖注射液', 'concentration': '5%', 'volume': '50ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 GlucoseInjection 5% 50ml', 'missing': [], 'status': 'done'}, {'liquid': None, 'concentration': None, 'volume': None, 'raw_text': '', 'missing': ['liquid', 'concentration', 'volume'], 'status': 'ocr_empty'}]
+💧 输液袋结构化信息: [{'index': 0, 'liquid': '葡萄糖注射液', 'concentration': '10%', 'volume': '100ml', 'raw_text': '供静脉注射或滴注 批准文号： 成份： 葡萄糖注射液 规格： GlucoseInjection.. 100ml:10g 数藏： 密闭保存。 100ml 00', 'status': 'done'}, {'index': 1, 'liquid': '葡萄糖注射液', 'concentration': '5%', 'volume': '50ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 GlucoseInjection S 5% 50ml應', 'status': 'done'}, {'index': 2, 'liquid': '葡萄糖注射液', 'concentration': '5%', 'volume': '50ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 GlucoseInjection 5% 50ml', 'status': 'done'}, {'index': 3, 'liquid': None, 'concentration': None, 'volume': None, 'raw_text': '', 'status': 'ocr_empty'}]
+利用“魏理想”作为测试病人
+
+============================================================
+【数据库匹配结果】
+  患者: ['赵二虎']
+  识别药品: ['注射用头孢哌酮钠舒巴坦钠（2：1）', '注射用头孢哌酮钠舒巴坦钠', '注射用门冬氨酸鸟氨酸']
+  输液袋信息: [{'liquid': '葡萄糖注射液', 'concentration': '10%', 'volume': '100ml', 'raw_text': '供静脉注射或滴注 批准文号： 成份： 葡萄糖注射液 规格： GlucoseInjection.. 100ml:10g 数藏： 密闭保存。 100ml 00', 'missing': [], 'status': 'done'}, {'liquid': '葡萄糖注射液', 'concentration': '5%', 'volume': '50ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 GlucoseInjection S 5% 50ml應', 'missing': [], 'status': 'done'}, {'liquid': '葡萄糖注射液', 'concentration': '5%', 'volume': '50ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 GlucoseInjection 5% 50ml', 'missing': [], 'status': 'done'}, {'liquid': None, 'concentration': None, 'volume': None, 'raw_text': '', 'missing': ['liquid', 'concentration', 'volume'], 'status': 'ocr_empty'}]
+  数据库药品: ['注射用艾司奥拉美拉唑钠', '破伤风人免疫球蛋白']
+  ❌ 缺少: ['注射用头孢哌酮钠舒巴坦钠（2：1）', '注射用头孢哌酮钠舒巴坦钠', '注射用门冬氨酸鸟氨酸']
+     多余: ['破伤风人免疫球蛋白', '注射用艾司奥拉美拉唑钠']
+============================================================
+
+⏱ 总耗时: 3.60s (多线程处理: 3.59s)
+🔓 后台处理完成
+[Detection Timing last 30] detect_batch:avg=0.14s,max=0.21s,p95=0.16s | detect_runtime_excluding_model_init:avg=0.14s,max=0.21s,p95=0.16s | fps:avg=7.00s,max=8.16s,p95=8.10s | frames:avg=1.00s,max=1.00s,p95=1.00s
+
+⏰ 定时触发 → 后台线程已启动
+最清晰帧: 批次 1/2 中的第 1 张
+检测结果: 药袋 1 个, 药瓶 3 个, 输液袋 4 个
+
+============================================================
+[单线程顺序处理] 共 8 个任务: 药瓶 3, 药袋 1, 输液袋 4
+============================================================
+🔍 药品匹配模式，查询：批准文号：国药准字H2000瑞注射用门冬复ORNITHINEASPARTATE武汉启瑞药业有限
+[警告] 以下药品未在缓存中找到: ['注射用头孢唑啉钠']
+药瓶旋转
+[特征提取耗时] 0.0451 秒
+[分类耗时] 0.1082 秒
+🔍 药品匹配模式，查询：【批准文号1显头孢哌酮钠舒巴坦钠2510062027/09也
+[警告] 以下药品未在缓存中找到: ['注射用头孢唑啉钠']
+药瓶旋转
+[特征提取耗时] 0.0311 秒
+[分类耗时] 0.0815 秒
+🔍 药品匹配模式，查询：实大号1开
+⚠️ 未找到匹配结果,返回所有药品名称
+[警告] 以下药品未在缓存中找到: ['注射用头孢唑啉钠']
+药瓶旋转
+[特征提取耗时] 0.0500 秒
+[分类耗时] 0.1733 秒
+
+[Timing Summary last 2] background_total:avg=3.56s,max=3.59s,p95=3.59s | bag_count:avg=1.00s,max=1.00s,p95=1.00s | bag_match:avg=0.00s,max=0.00s,p95=0.00s | bag_ocr_angle_cls:avg=0.02s,max=0.02s,p95=0.02s | bag_ocr_bag_angle_cls:avg=0.02s,max=0.02s,p95=0.02s | bag_ocr_bag_angle_pred:avg=0.00s,max=0.00s,p95=0.00s | bag_ocr_bag_name_roi_extract:avg=0.11s,max=0.20s,p95=0.20s | bag_ocr_bottle_angle_cls:avg=0.03s,max=0.04s,p95=0.04s | bag_ocr_bottle_angle_pred:avg=3.00s,max=3.00s,p95=3.00s | bag_ocr_mixed_rknn_det:avg=0.86s,max=0.89s,p95=0.89s | bag_ocr_mixed_rknn_det_infer:avg=0.70s,max=0.73s,p95=0.73s | bag_ocr_mixed_rknn_rec:avg=1.84s,max=1.87s,p95=1.87s | bag_ocr_mixed_text_regions:avg=66.00s,max=67.00s,p95=67.00s | bag_ocr_shuye_candidate_rois:avg=4.00s,max=4.00s,p95=4.00s | bag_ocr_shuye_preprocess:avg=0.04s,max=0.04s,p95=0.04s | bag_ocr_shuye_roi_angle_cls:avg=0.03s,max=0.03s,p95=0.03s | bag_ocr_shuye_roi_angle_pred:avg=8.00s,max=9.00s,p95=9.00s | bag_total:avg=0.00s,max=0.00s,p95=0.00s | bottle_classify:avg=0.29s,max=0.36s,p95=0.36s | bottle_count:avg=3.00s,max=3.00s,p95=3.00s | bottle_match:avg=0.02s,max=0.02s,p95=0.02s | bottle_ocr_angle_cls:avg=0.05s,max=0.07s,p95=0.07s | bottle_ocr_bag_angle_cls:avg=0.02s,max=0.02s,p95=0.02s | bottle_ocr_bag_angle_pred:avg=0.00s,max=0.00s,p95=0.00s | bottle_ocr_bag_name_roi_extract:avg=0.11s,max=0.20s,p95=0.20s | bottle_ocr_bottle_angle_cls:avg=0.03s,max=0.04s,p95=0.04s | bottle_ocr_bottle_angle_pred:avg=3.00s,max=3.00s,p95=3.00s | bottle_ocr_mixed_rknn_det:avg=0.86s,max=0.89s,p95=0.89s | bottle_ocr_mixed_rknn_det_infer:avg=0.70s,max=0.73s,p95=0.73s | bottle_ocr_mixed_rknn_rec:avg=1.84s,max=1.87s,p95=1.87s | bottle_ocr_mixed_text_regions:avg=66.00s,max=67.00s,p95=67.00s | bottle_ocr_shuye_candidate_rois:avg=12.00s,max=12.00s,p95=12.00s | bottle_ocr_shuye_preprocess:avg=0.04s,max=0.04s,p95=0.04s | bottle_ocr_shuye_roi_angle_cls:avg=0.09s,max=0.10s,p95=0.10s | bottle_ocr_shuye_roi_angle_pred:avg=24.00s,max=27.00s,p95=27.00s | bottle_total:avg=0.30s,max=0.38s,p95=0.38s | crop:avg=0.01s,max=0.01s,p95=0.01s | prepare_and_recognition:avg=3.27s,max=3.30s,p95=3.30s | recognition_tasks:avg=3.56s,max=3.59s,p95=3.59s | runtime_excluding_model_init:avg=3.56s,max=3.59s,p95=3.59s | select_sharpest:avg=0.28s,max=0.29s,p95=0.29s | shuye_count:avg=4.00s,max=4.00s,p95=4.00s | shuye_ocr_angle_cls:avg=0.06s,max=0.09s,p95=0.09s | shuye_ocr_bag_angle_cls:avg=0.02s,max=0.02s,p95=0.02s | shuye_ocr_bag_angle_pred:avg=0.00s,max=0.00s,p95=0.00s | shuye_ocr_bag_name_roi_extract:avg=0.11s,max=0.20s,p95=0.20s | shuye_ocr_bottle_angle_cls:avg=0.03s,max=0.04s,p95=0.04s | shuye_ocr_bottle_angle_pred:avg=3.00s,max=3.00s,p95=3.00s | shuye_ocr_mixed_rknn_det:avg=0.86s,max=0.89s,p95=0.89s | shuye_ocr_mixed_rknn_det_infer:avg=0.70s,max=0.73s,p95=0.73s | shuye_ocr_mixed_rknn_rec:avg=1.84s,max=1.87s,p95=1.87s | shuye_ocr_mixed_text_regions:avg=66.00s,max=67.00s,p95=67.00s | shuye_ocr_shuye_candidate_rois:avg=16.00s,max=16.00s,p95=16.00s | shuye_ocr_shuye_preprocess:avg=0.04s,max=0.04s,p95=0.04s | shuye_ocr_shuye_roi_angle_cls:avg=0.13s,max=0.13s,p95=0.13s | shuye_ocr_shuye_roi_angle_pred:avg=32.00s,max=36.00s,p95=36.00s | shuye_total:avg=0.00s,max=0.00s,p95=0.00s | target_count:avg=8.00s,max=8.00s,p95=8.00s
+
+[Step Timing Detail]
+  batch: background_total=3.5195s | bag_count=1.0000s | bag_match=0.0000s | bag_ocr_angle_cls=0.0233s | bag_ocr_bag_angle_cls=0.0234s | bag_ocr_bag_angle_pred=0.0000s | bag_ocr_bag_name_roi_extract=0.0257s | bag_ocr_bottle_angle_cls=0.0209s | bag_ocr_bottle_angle_pred=3.0000s | bag_ocr_mixed_rknn_det=0.8232s | bag_ocr_mixed_rknn_det_infer=0.6730s | bag_ocr_mixed_rknn_rec=1.8730s | bag_ocr_mixed_text_regions=67.0000s | bag_ocr_shuye_candidate_rois=4.0000s | bag_ocr_shuye_preprocess=0.0390s | bag_ocr_shuye_roi_angle_cls=0.0317s | bag_ocr_shuye_roi_angle_pred=7.0000s | bag_total=0.0001s | bottle_classify=0.3633s | bottle_count=3.0000s | bottle_match=0.0153s | bottle_ocr_angle_cls=0.0700s | bottle_ocr_bag_angle_cls=0.0234s | bottle_ocr_bag_angle_pred=0.0000s | bottle_ocr_bag_name_roi_extract=0.0257s | bottle_ocr_bottle_angle_cls=0.0209s | bottle_ocr_bottle_angle_pred=3.0000s | bottle_ocr_mixed_rknn_det=0.8232s | bottle_ocr_mixed_rknn_det_infer=0.6730s | bottle_ocr_mixed_rknn_rec=1.8730s | bottle_ocr_mixed_text_regions=67.0000s | bottle_ocr_shuye_candidate_rois=12.0000s | bottle_ocr_shuye_preprocess=0.0390s | bottle_ocr_shuye_roi_angle_cls=0.0952s | bottle_ocr_shuye_roi_angle_pred=21.0000s | bottle_total=0.3789s | crop=0.0044s | prepare_and_recognition=3.2359s | recognition_tasks=3.5195s | runtime_excluding_model_init=3.5195s | select_sharpest=0.2792s | shuye_count=4.0000s | shuye_ocr_angle_cls=0.0934s | shuye_ocr_bag_angle_cls=0.0234s | shuye_ocr_bag_angle_pred=0.0000s | shuye_ocr_bag_name_roi_extract=0.0257s | shuye_ocr_bottle_angle_cls=0.0209s | shuye_ocr_bottle_angle_pred=3.0000s | shuye_ocr_mixed_rknn_det=0.8232s | shuye_ocr_mixed_rknn_det_infer=0.6730s | shuye_ocr_mixed_rknn_rec=1.8730s | shuye_ocr_mixed_text_regions=67.0000s | shuye_ocr_shuye_candidate_rois=16.0000s | shuye_ocr_shuye_preprocess=0.0390s | shuye_ocr_shuye_roi_angle_cls=0.1270s | shuye_ocr_shuye_roi_angle_pred=28.0000s | shuye_total=0.0001s | target_count=8.0000s
+  bag#1: status=done, result=['赵二虎'], timing: match=0.0000s | ocr_angle_cls=0.0233s | ocr_bag_angle_cls=0.0234s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.0257s | ocr_bottle_angle_cls=0.0209s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8232s | ocr_mixed_rknn_det_infer=0.6730s | ocr_mixed_rknn_rec=1.8730s | ocr_mixed_text_regions=67.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0390s | ocr_shuye_roi_angle_cls=0.0317s | ocr_shuye_roi_angle_pred=7.0000s | total=0.0001s
+  bottle#1: status=done, result=注射用门冬氨酸鸟氨酸, timing: classify=0.1082s | match=0.0068s | ocr_angle_cls=0.0233s | ocr_bag_angle_cls=0.0234s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.0257s | ocr_bottle_angle_cls=0.0209s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8232s | ocr_mixed_rknn_det_infer=0.6730s | ocr_mixed_rknn_rec=1.8730s | ocr_mixed_text_regions=67.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0390s | ocr_shuye_roi_angle_cls=0.0317s | ocr_shuye_roi_angle_pred=7.0000s | total=0.1151s
+    decision: sift_agrees_with_ocr_top1
+  bottle#2: status=done, result=注射用头孢哌酮钠舒巴坦钠, timing: classify=0.0816s | match=0.0048s | ocr_angle_cls=0.0233s | ocr_bag_angle_cls=0.0234s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.0257s | ocr_bottle_angle_cls=0.0209s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8232s | ocr_mixed_rknn_det_infer=0.6730s | ocr_mixed_rknn_rec=1.8730s | ocr_mixed_text_regions=67.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0390s | ocr_shuye_roi_angle_cls=0.0317s | ocr_shuye_roi_angle_pred=7.0000s | total=0.0865s
+    decision: strong_sift_in_ocr_top3
+  bottle#3: status=done, result=注射用头孢他啶, timing: classify=0.1735s | match=0.0037s | ocr_angle_cls=0.0233s | ocr_bag_angle_cls=0.0234s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.0257s | ocr_bottle_angle_cls=0.0209s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8232s | ocr_mixed_rknn_det_infer=0.6730s | ocr_mixed_rknn_rec=1.8730s | ocr_mixed_text_regions=67.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0390s | ocr_shuye_roi_angle_cls=0.0317s | ocr_shuye_roi_angle_pred=7.0000s | total=0.1773s
+    decision: very_strong_sift_override
+  shuye#1: status=done, result=葡萄糖注射液, timing: ocr_angle_cls=0.0233s | ocr_bag_angle_cls=0.0234s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.0257s | ocr_bottle_angle_cls=0.0209s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8232s | ocr_mixed_rknn_det_infer=0.6730s | ocr_mixed_rknn_rec=1.8730s | ocr_mixed_text_regions=67.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0390s | ocr_shuye_roi_angle_cls=0.0317s | ocr_shuye_roi_angle_pred=7.0000s | total=0.0000s
+  shuye#2: status=done, result=葡萄糖注射液, timing: ocr_angle_cls=0.0233s | ocr_bag_angle_cls=0.0234s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.0257s | ocr_bottle_angle_cls=0.0209s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8232s | ocr_mixed_rknn_det_infer=0.6730s | ocr_mixed_rknn_rec=1.8730s | ocr_mixed_text_regions=67.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0390s | ocr_shuye_roi_angle_cls=0.0317s | ocr_shuye_roi_angle_pred=7.0000s | total=0.0000s
+  shuye#3: status=done, result=葡萄糖注射液, timing: ocr_angle_cls=0.0233s | ocr_bag_angle_cls=0.0234s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.0257s | ocr_bottle_angle_cls=0.0209s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8232s | ocr_mixed_rknn_det_infer=0.6730s | ocr_mixed_rknn_rec=1.8730s | ocr_mixed_text_regions=67.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0390s | ocr_shuye_roi_angle_cls=0.0317s | ocr_shuye_roi_angle_pred=7.0000s | total=0.0000s
+  shuye#4: status=ocr_empty, result=, timing: ocr_angle_cls=0.0233s | ocr_bag_angle_cls=0.0234s | ocr_bag_angle_pred=0.0000s | ocr_bag_name_roi_extract=0.0257s | ocr_bottle_angle_cls=0.0209s | ocr_bottle_angle_pred=3.0000s | ocr_mixed_rknn_det=0.8232s | ocr_mixed_rknn_det_infer=0.6730s | ocr_mixed_rknn_rec=1.8730s | ocr_mixed_text_regions=67.0000s | ocr_shuye_candidate_rois=4.0000s | ocr_shuye_preprocess=0.0390s | ocr_shuye_roi_angle_cls=0.0317s | ocr_shuye_roi_angle_pred=7.0000s | total=0.0000s
+
+[单线程顺序处理完成] 耗时: 3.52s, 完成任务: 8/8
+
+============================================================
+【处理结果汇总】
+  药瓶: 3 个
+  药袋: 1 个
+  输液袋: 4 个
+============================================================
+  药瓶 1: 注射用门冬氨酸鸟氨酸 (方式: sift_template, 置信度: 0.0377, SIFT good=4, score=0.0113)
+  药瓶 2: 注射用头孢哌酮钠舒巴坦钠 (方式: sift_template, 置信度: 0.0583, SIFT good=5, score=0.0138)
+  药瓶 3: 注射用头孢他啶 (方式: sift_template, 置信度: 0.0789, SIFT good=15, score=0.0357)
+
+🏥 识别药品（去重后）: ['注射用头孢他啶', '注射用头孢哌酮钠舒巴坦钠', '注射用门冬氨酸鸟氨酸']
+  药袋 1: 患者 ['赵二虎']
+
+👤 患者姓名: ['赵二虎']
+  输液袋 1: 液体=葡萄糖注射液, 浓度=10%, 容量=100ml, 状态=done
+  输液袋 2: 液体=葡萄糖注射液, 浓度=5%, 容量=50ml, 状态=done
+  输液袋 3: 液体=葡萄糖注射液, 浓度=5%, 容量=50ml, 状态=done
+  输液袋 4: 液体=None, 浓度=None, 容量=None, 状态=ocr_empty
+
+💧 输液袋信息: [{'liquid': '葡萄糖注射液', 'concentration': '10%', 'volume': '100ml', 'raw_text': '供静脉注射或滴注 批准文号： 成份： 葡萄糖注射液 规格： GlucoseInjection 100ml:10g 藏： 密闭保存。 100ml 0%', 'missing': [], 'status': 'done'}, {'liquid': '葡萄糖注射液', 'concentration': '5%', 'volume': '50ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 Glucoselnjection S 5% 50ml', 'missing': [], 'status': 'done'}, {'liquid': '葡萄糖注射液', 'concentration': '5%', 'volume': '50ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 GlucoseInjection 5% 50ml', 'missing': [], 'status': 'done'}, {'liquid': None, 'concentration': None, 'volume': None, 'raw_text': '', 'missing': ['liquid', 'concentration', 'volume'], 'status': 'ocr_empty'}]
+💧 输液袋结构化信息: [{'index': 0, 'liquid': '葡萄糖注射液', 'concentration': '10%', 'volume': '100ml', 'raw_text': '供静脉注射或滴注 批准文号： 成份： 葡萄糖注射液 规格： GlucoseInjection 100ml:10g 藏： 密闭保存。 100ml 0%', 'status': 'done'}, {'index': 1, 'liquid': '葡萄糖注射液', 'concentration': '5%', 'volume': '50ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 Glucoselnjection S 5% 50ml', 'status': 'done'}, {'index': 2, 'liquid': '葡萄糖注射液', 'concentration': '5%', 'volume': '50ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 GlucoseInjection 5% 50ml', 'status': 'done'}, {'index': 3, 'liquid': None, 'concentration': None, 'volume': None, 'raw_text': '', 'status': 'ocr_empty'}]
+利用“魏理想”作为测试病人
+
+============================================================
+【数据库匹配结果】
+  患者: ['赵二虎']
+  识别药品: ['注射用头孢他啶', '注射用头孢哌酮钠舒巴坦钠', '注射用门冬氨酸鸟氨酸']
+  输液袋信息: [{'liquid': '葡萄糖注射液', 'concentration': '10%', 'volume': '100ml', 'raw_text': '供静脉注射或滴注 批准文号： 成份： 葡萄糖注射液 规格： GlucoseInjection 100ml:10g 藏： 密闭保存。 100ml 0%', 'missing': [], 'status': 'done'}, {'liquid': '葡萄糖注射液', 'concentration': '5%', 'volume': '50ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 Glucoselnjection S 5% 50ml', 'missing': [], 'status': 'done'}, {'liquid': '葡萄糖注射液', 'concentration': '5%', 'volume': '50ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 GlucoseInjection 5% 50ml', 'missing': [], 'status': 'done'}, {'liquid': None, 'concentration': None, 'volume': None, 'raw_text': '', 'missing': ['liquid', 'concentration', 'volume'], 'status': 'ocr_empty'}]
+  数据库药品: ['注射用艾司奥拉美拉唑钠', '破伤风人免疫球蛋白']
+  ❌ 缺少: ['注射用头孢他啶', '注射用头孢哌酮钠舒巴坦钠', '注射用门冬氨酸鸟氨酸']
+     多余: ['破伤风人免疫球蛋白', '注射用艾司奥拉美拉唑钠']
+============================================================
+
+⏱ 总耗时: 3.53s (多线程处理: 3.52s)
+🔓 后台处理完成
+✅ 完成！总帧数: 90
+数据库已断开连接

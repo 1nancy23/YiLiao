@@ -1,0 +1,474 @@
+{
+  "image": "127.png",
+  "image_shape": [
+    2160,
+    3840
+  ],
+  "roi": [
+    100,
+    100,
+    3400,
+    2160
+  ],
+  "detections": [
+    {
+      "bbox": [
+        1006.21,
+        1644.2,
+        1429.02,
+        1871.12
+      ],
+      "confidence": 0.796875,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        2809.61,
+        1392.33,
+        3026.17,
+        1831.69
+      ],
+      "confidence": 0.8125,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        2155.41,
+        1443.83,
+        2355.21,
+        1852.61
+      ],
+      "confidence": 0.802246,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        1675.23,
+        1445.44,
+        1868.59,
+        1857.44
+      ],
+      "confidence": 0.828125,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        813.17,
+        1465.15,
+        993.0,
+        1824.85
+      ],
+      "confidence": 0.741699,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        2790.27,
+        523.87,
+        2957.85,
+        876.72
+      ],
+      "confidence": 0.701172,
+      "class_id": 0,
+      "class_name": "bottle"
+    },
+    {
+      "bbox": [
+        1961.41,
+        505.56,
+        2827.66,
+        1228.17
+      ],
+      "confidence": 0.894531,
+      "class_id": 2,
+      "class_name": "infusion"
+    },
+    {
+      "bbox": [
+        932.41,
+        596.49,
+        1796.73,
+        1227.37
+      ],
+      "confidence": 0.772949,
+      "class_id": 2,
+      "class_name": "infusion"
+    }
+  ],
+  "counts": {
+    "bottle": 6,
+    "bag": 0,
+    "infusion": 2
+  },
+  "recognition": [
+    {
+      "type": "bottle",
+      "index": 0,
+      "ocr_text": "酸鸟氨酸产品批号司有效期呈",
+      "candidates": [
+        "人免疫球蛋白",
+        "多索茶碱注射液",
+        "异甘草酸镁注射液",
+        "注射用人干扰素a2a",
+        "注射用人干扰素a2b",
+        "注射用哌拉西林钠他唑巴坦钠",
+        "注射用多种维生素",
+        "注射用头孢他啶",
+        "注射用头孢哌酮钠舒巴坦钠",
+        "注射用头孢哌酮钠舒巴坦钠（2：1）",
+        "注射用头孢曲松钠",
+        "注射用头孢西丁钠",
+        "注射用更昔洛韦",
+        "注射用氢溴酸高乌甲素",
+        "注射用水溶性维生素",
+        "注射用泮托拉唑钠",
+        "注射用炎琥宁",
+        "注射用盐酸万古霉素",
+        "注射用硫普罗宁",
+        "注射用美罗培南",
+        "注射用艾司奥拉美拉唑钠",
+        "注射用谷胱甘肽",
+        "注射用门冬氨酸鸟氨酸",
+        "灭菌注射用水",
+        "破伤风人免疫球蛋白",
+        "维生素C注射液",
+        "葡萄糖注射液",
+        "重组人血小板生成素注射液",
+        "银杏叶提取物注射液"
+      ],
+      "final_medicine": "注射用人干扰素a2b",
+      "confidence": 0.056,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.008578,
+        "ocr_paddle_ocr": 1.39539,
+        "ocr_total": 1.403983,
+        "ocr_recognizer_call": 1.404111,
+        "match": 0.001238,
+        "classify": 0.293669,
+        "total": 1.699052
+      },
+      "top_3": [
+        [
+          "注射用人干扰素a2b",
+          0.056
+        ],
+        [
+          "破伤风人免疫球蛋白",
+          0.043859649122807015
+        ],
+        [
+          "维生素C注射液",
+          0.04054054054054054
+        ]
+      ]
+    },
+    {
+      "type": "bottle",
+      "index": 1,
+      "ocr_text": "经准文号国药字所注射用头孢曲松盼邦缸上市可人",
+      "candidates": [
+        "注射用头孢曲松钠",
+        "注射用头孢他啶",
+        "注射用头孢西丁钠",
+        "注射用炎琥宁",
+        "灭菌注射用水"
+      ],
+      "final_medicine": "注射用头孢曲松钠",
+      "confidence": 0.03508771929824561,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.022948,
+        "ocr_paddle_ocr": 1.994373,
+        "ocr_total": 2.017338,
+        "ocr_recognizer_call": 2.017421,
+        "match": 0.001997,
+        "classify": 0.071876,
+        "total": 2.091316
+      },
+      "top_3": [
+        [
+          "注射用头孢曲松钠",
+          0.03508771929824561
+        ],
+        [
+          "灭菌注射用水",
+          0.020689655172413793
+        ],
+        [
+          "注射用炎琥宁",
+          0.012195121951219513
+        ]
+      ]
+    },
+    {
+      "type": "bottle",
+      "index": 2,
+      "ocr_text": "头孢哌酮钠舒巴坦锁",
+      "candidates": [
+        "注射用头孢哌酮钠舒巴坦钠",
+        "注射用头孢哌酮钠舒巴坦钠（2：1）"
+      ],
+      "final_medicine": "注射用头孢哌酮钠舒巴坦钠",
+      "confidence": 0.021505376344086023,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.022031,
+        "ocr_paddle_ocr": 1.570915,
+        "ocr_total": 1.592968,
+        "ocr_recognizer_call": 1.593047,
+        "match": 0.001426,
+        "classify": 0.16993,
+        "total": 1.764431
+      },
+      "top_3": [
+        [
+          "注射用头孢哌酮钠舒巴坦钠",
+          0.021505376344086023
+        ],
+        [
+          "注射用头孢哌酮钠舒巴坦钠（2：1）",
+          0.01639344262295082
+        ]
+      ]
+    },
+    {
+      "type": "bottle",
+      "index": 3,
+      "ocr_text": "产品号注射用",
+      "candidates": [
+        "注射用人干扰素a2a",
+        "注射用人干扰素a2b",
+        "注射用哌拉西林钠他唑巴坦钠",
+        "注射用多种维生素",
+        "注射用头孢他啶",
+        "注射用头孢哌酮钠舒巴坦钠",
+        "注射用头孢哌酮钠舒巴坦钠（2：1）",
+        "注射用头孢曲松钠",
+        "注射用头孢西丁钠",
+        "注射用更昔洛韦"
+      ],
+      "final_medicine": "注射用头孢他啶",
+      "confidence": 0.04195804195804196,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.022166,
+        "ocr_paddle_ocr": 2.120926,
+        "ocr_total": 2.143106,
+        "ocr_recognizer_call": 2.143197,
+        "match": 0.001528,
+        "classify": 0.149988,
+        "total": 2.294742
+      },
+      "top_3": [
+        [
+          "注射用头孢他啶",
+          0.04195804195804196
+        ],
+        [
+          "注射用头孢哌酮钠舒巴坦钠（2：1）",
+          0.03208556149732621
+        ],
+        [
+          "注射用头孢西丁钠",
+          0.03125
+        ]
+      ]
+    },
+    {
+      "type": "bottle",
+      "index": 4,
+      "ocr_text": "国准字川炎琥宁年月岭尔滨珍资制药有限公司",
+      "candidates": [
+        "注射用炎琥宁"
+      ],
+      "final_medicine": "注射用炎琥宁",
+      "confidence": 0.03048780487804878,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.007752,
+        "ocr_paddle_ocr": 0.98615,
+        "ocr_total": 0.99391,
+        "ocr_recognizer_call": 0.993988,
+        "match": 0.001157,
+        "classify": 0.036145,
+        "total": 1.031313
+      },
+      "top_3": [
+        [
+          "注射用炎琥宁",
+          0.03048780487804878
+        ]
+      ]
+    },
+    {
+      "type": "bottle",
+      "index": 5,
+      "ocr_text": "异甘草酸生日严号天馈甘美",
+      "candidates": [
+        "异甘草酸镁注射液"
+      ],
+      "final_medicine": "异甘草酸镁注射液",
+      "confidence": 0.02654867256637168,
+      "status": "done",
+      "timing_sec": {
+        "ocr_angle_cls": 0.00719,
+        "ocr_paddle_ocr": 1.62822,
+        "ocr_total": 1.635423,
+        "ocr_recognizer_call": 1.635493,
+        "match": 0.00143,
+        "classify": 0.026016,
+        "total": 1.662958
+      },
+      "top_3": [
+        [
+          "异甘草酸镁注射液",
+          0.02654867256637168
+        ]
+      ]
+    },
+    {
+      "type": "infusion",
+      "index": 0,
+      "ocr_text": "",
+      "status": "error: 未检测到完整的 xx%",
+      "timing_sec": {
+        "total": 1.233164
+      },
+      "traceback": "Traceback (most recent call last):\n  File \"/home/forlinx/Models/AnotherYiliao/shibie/YiLiaoShiBie_0521/YiLiaoShiBie/run_single_image_057_fast.py\", line 310, in process_infusion\n    text, ocr_timing = call_recognizer(recognizer.recognize_shuyedai, quiet, image)\n  File \"/home/forlinx/Models/AnotherYiliao/shibie/YiLiaoShiBie_0521/YiLiaoShiBie/run_single_image_057_fast.py\", line 197, in call_recognizer\n    text = func(*args)\n  File \"/home/forlinx/Models/AnotherYiliao/shibie/YiLiaoShiBie_0521/YiLiaoShiBie/src/identification/OCRRecognizer.py\", line 1010, in recognize_shuyedai\n    result=parse_required_fields(result)\n  File \"/home/forlinx/Models/AnotherYiliao/shibie/YiLiaoShiBie_0521/YiLiaoShiBie/src/identification/OCRRecognizer.py\", line 684, in parse_required_fields\n    raise ValueError(\"未检测到完整的 xx%\")\nValueError: 未检测到完整的 xx%\n"
+    }
+  ],
+  "timings_sec": {
+    "read_image": 0.18733051799995337,
+    "load_yolo": 0.14323226500005148,
+    "yolo_detect": 0.11748422000005121,
+    "crop": 0.0016700839998975425,
+    "load_db_and_matchers": 0.10657413600006294,
+    "load_ocr": 2.220618390000027,
+    "recognition": 3.755925335000029,
+    "save_visual": 1.45800004247576e-06,
+    "total": 6.533036197999991
+  },
+  "timing_detail": {
+    "ocr_instances": [
+      {
+        "index": 0,
+        "thread_lock": true
+      },
+      {
+        "index": 1,
+        "thread_lock": true
+      },
+      {
+        "index": 2,
+        "thread_lock": true
+      },
+      {
+        "index": 3,
+        "thread_lock": true
+      }
+    ],
+    "task_counts": {
+      "bottle": 6,
+      "bag": 0,
+      "infusion": 1,
+      "total": 7
+    },
+    "recognition_by_type": {
+      "bottle": [
+        {
+          "index": 0,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.008578,
+            "ocr_paddle_ocr": 1.39539,
+            "ocr_total": 1.403983,
+            "ocr_recognizer_call": 1.404111,
+            "match": 0.001238,
+            "classify": 0.293669,
+            "total": 1.699052
+          }
+        },
+        {
+          "index": 1,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.022948,
+            "ocr_paddle_ocr": 1.994373,
+            "ocr_total": 2.017338,
+            "ocr_recognizer_call": 2.017421,
+            "match": 0.001997,
+            "classify": 0.071876,
+            "total": 2.091316
+          }
+        },
+        {
+          "index": 2,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.022031,
+            "ocr_paddle_ocr": 1.570915,
+            "ocr_total": 1.592968,
+            "ocr_recognizer_call": 1.593047,
+            "match": 0.001426,
+            "classify": 0.16993,
+            "total": 1.764431
+          }
+        },
+        {
+          "index": 3,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.022166,
+            "ocr_paddle_ocr": 2.120926,
+            "ocr_total": 2.143106,
+            "ocr_recognizer_call": 2.143197,
+            "match": 0.001528,
+            "classify": 0.149988,
+            "total": 2.294742
+          }
+        },
+        {
+          "index": 4,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.007752,
+            "ocr_paddle_ocr": 0.98615,
+            "ocr_total": 0.99391,
+            "ocr_recognizer_call": 0.993988,
+            "match": 0.001157,
+            "classify": 0.036145,
+            "total": 1.031313
+          }
+        },
+        {
+          "index": 5,
+          "status": "done",
+          "timing_sec": {
+            "ocr_angle_cls": 0.00719,
+            "ocr_paddle_ocr": 1.62822,
+            "ocr_total": 1.635423,
+            "ocr_recognizer_call": 1.635493,
+            "match": 0.00143,
+            "classify": 0.026016,
+            "total": 1.662958
+          }
+        }
+      ],
+      "infusion": [
+        {
+          "index": 0,
+          "status": "error: 未检测到完整的 xx%",
+          "timing_sec": {
+            "total": 1.233164
+          }
+        }
+      ]
+    }
+  }
+}

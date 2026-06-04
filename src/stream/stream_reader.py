@@ -1,7 +1,16 @@
-import time
+﻿import time
 import threading
 import os
 import cv2
+
+
+def _runtime_logs_enabled():
+    return os.environ.get("YILIAO_RUNTIME_LOGS", "0").lower() in ("1", "true", "yes", "on")
+
+
+def _runtime_log(*args, **kwargs):
+    if _runtime_logs_enabled():
+        print(*args, **kwargs)
 
 
 class RTSPStreamReader(threading.Thread):
@@ -35,10 +44,10 @@ class RTSPStreamReader(threading.Thread):
 
         while self.running:
             if cap is None:
-                print("🔄 正在连接 RTSP 流...")
+                _runtime_log("🔄 正在连接 RTSP 流...")
                 cap = self._create_capture()
                 if not cap.isOpened():
-                    print("❌ RTSP连接失败！")
+                    _runtime_log("❌ RTSP连接失败！")
                     time.sleep(3)
                     continue
 
@@ -46,7 +55,7 @@ class RTSPStreamReader(threading.Thread):
                 self.frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 self.frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 self.fps = cap.get(cv2.CAP_PROP_FPS) or 25
-                print(f"✅ RTSP连接成功！分辨率: {self.frame_width}x{self.frame_height}, 帧率: {self.fps:.1f}")
+                _runtime_log(f"✅ RTSP连接成功！分辨率: {self.frame_width}x{self.frame_height}, 帧率: {self.fps:.1f}")
                 self.connected = True
                 consecutive_failures = 0
 
@@ -57,9 +66,9 @@ class RTSPStreamReader(threading.Thread):
             ret, frame = cap.read()
             if not ret:
                 consecutive_failures += 1
-                print(f"⚠️ 读取失败 #{consecutive_failures}")
+                _runtime_log(f"⚠️ 读取失败 #{consecutive_failures}")
                 if consecutive_failures >= max_failures:
-                    print("⚠️ 视频流中断，尝试重连...")
+                    _runtime_log("⚠️ 视频流中断，尝试重连...")
                     cap.release()
                     cap = None
                     time.sleep(2)

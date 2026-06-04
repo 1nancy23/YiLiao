@@ -1,0 +1,137 @@
+/home/forlinx/Models/Python2/lib/python3.9/site-packages/fuzzywuzzy/fuzz.py:11: UserWarning: Using slow pure-python SequenceMatcher. Install python-Levenshtein to remove this warning
+  warnings.warn('Using slow pure-python SequenceMatcher. Install python-Levenshtein to remove this warning')
+数据库连接成功
+✅ 已加载 29 个药品名称
+✅ 已加载 20 个患者名称
+所有患者 ['魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想']
+W rknn-toolkit-lite2 version: 2.3.2
+I RKNN: [08:41:45.462] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [08:41:45.462] RKNN Driver Information, version: 0.9.8
+I RKNN: [08:41:45.462] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+[特征缓存] 已从 ./single_image_feature_cache.pkl 加载 29 种药品特征
+[初始化完成] 已加载 29 种药品特征到内存
+初始化 RKNN OCR 实例池...
+W rknn-toolkit-lite2 version: 2.3.2
+I RKNN: [08:41:45.582] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [08:41:45.582] RKNN Driver Information, version: 0.9.8
+I RKNN: [08:41:45.583] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+W rknn-toolkit-lite2 version: 2.3.2
+I RKNN: [08:41:45.791] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [08:41:45.791] RKNN Driver Information, version: 0.9.8
+I RKNN: [08:41:45.792] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+W rknn-toolkit-lite2 version: 2.3.2
+I RKNN: [08:41:45.977] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [08:41:45.977] RKNN Driver Information, version: 0.9.8
+I RKNN: [08:41:45.977] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+RKNN OCR 初始化完成: 1 个实例
+实时运行参数:
+  recognition_workers: 1
+  trigger_interval: 3.0
+  max_frames: 45
+  quiet_ocr: True
+  headless: True
+  ocr_instances: 1
+
+============================================================
+启动实时视频识别: YOLO + RKNN OCR + SIFT
+============================================================
+RTSP 参数:
+{'username': 'admin', 'password': 'a1b2c3d4', 'ip_address': '192.168.254.5', 'port': '554', 'channel': '201'}
+📋 OCR 模型分配:
+  OCR/SIFT 后台识别: 单线程顺序处理
+  实际 OCR 实例: 1 个
+  使用第 1 个 OCR 实例处理所有药瓶/药袋/输液袋任务
+  headless显示模式: True
+RTSP: rtsp://admin:****@192.168.254.5:554/Streaming/Channels/201
+🔄 正在连接 RTSP 流...
+✅ RTSP连接成功！分辨率: 3840x2160, 帧率: 20.0
+Connecting RTSP stream...
+W rknn-toolkit-lite2 version: 2.3.2
+I RKNN: [08:41:47.669] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [08:41:47.670] RKNN Driver Information, version: 0.9.8
+I RKNN: [08:41:47.670] RKNN Model Information, version: 6, toolkit version: 1.6.0+81f21f4d(compiler version: 1.6.0 (585b3edcf@2023-12-11T07:56:14)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: static_shape
+W RKNN: [08:41:47.805] query RKNN_QUERY_INPUT_DYNAMIC_RANGE error, rknn model is static shape type, please export rknn with dynamic_shapes
+W Query dynamic range failed. Ret code: RKNN_ERR_MODEL_INVALID. (If it is a static shape RKNN model, please ignore the above warning message.)
+0
+
+============================================================
+🚀 实时目标检测已启动 YOLOv8 + 切片处理
+  批量帧数: 1
+  自动触发间隔: 3.0 秒
+  按键: 'q'-退出  's'-截图  'r'-切换模式
+============================================================
+
+
+⏰ 定时触发 → 后台线程已启动
+最清晰帧: 批次 1/2 中的第 1 张
+检测结果: 药袋 1 个, 药瓶 5 个, 输液袋 2 个
+
+============================================================
+[单线程顺序处理] 共 8 个任务: 药瓶 5, 药袋 1, 输液袋 2
+============================================================
+🔍 药品匹配模式，查询：谢用头孢曲松钢njection邦制
+药瓶旋转
+[特征提取耗时] 0.0560 秒
+[分类耗时] 0.0926 秒
+🔍 药品匹配模式，查询：632门冬氨酸鸟氨酸FARTATEFORINJECTION【产品批业有限公司【有效题量
+药瓶旋转
+[特征提取耗时] 0.0356 秒
+[分类耗时] 0.0408 秒
+🔍 药品匹配模式，查询：多种维生素（12aminforInjection（125m/山西健药业有员经
+药瓶旋转
+[特征提取耗时] 0.0346 秒
+[分类耗时] 0.0532 秒
+🔍 药品匹配模式，查询：注射用头孢Ceftazidimefrling1.0g注射用炎班C50200
+药瓶旋转
+[特征提取耗时] 0.0466 秒
+[分类耗时] 0.1043 秒
+🔍 药品匹配模式，查询：2027年01200mg
+⚠️ 未找到匹配结果,返回所有药品名称
+药瓶旋转
+[特征提取耗时] 0.0301 秒
+⏳ 等待后台处理完成，最多 120 秒...
+[分类耗时] 0.1705 秒
+🔍 患者匹配模式，查询：赵三
+
+[Timing Summary last 1] background_total:avg=6.19s,max=6.19s,p95=6.19s | bag_count:avg=1.00s,max=1.00s,p95=1.00s | bag_match:avg=0.00s,max=0.00s,p95=0.00s | bag_ocr_angle_cls:avg=0.01s,max=0.01s,p95=0.01s | bag_ocr_angle_pred:avg=0.00s,max=0.00s,p95=0.00s | bag_ocr_name_roi_0_rknn_det:avg=0.33s,max=0.33s,p95=0.33s | bag_ocr_name_roi_0_rknn_rec:avg=0.38s,max=0.38s,p95=0.38s | bag_ocr_name_roi_0_text_regions:avg=1.00s,max=1.00s,p95=1.00s | bag_ocr_name_roi_1_rknn_det:avg=0.34s,max=0.34s,p95=0.34s | bag_ocr_name_roi_1_rknn_rec:avg=0.39s,max=0.39s,p95=0.39s | bag_ocr_name_roi_1_text_regions:avg=3.00s,max=3.00s,p95=3.00s | bag_ocr_name_roi_2_rknn_det:avg=0.35s,max=0.35s,p95=0.35s | bag_ocr_name_roi_2_rknn_rec:avg=0.39s,max=0.39s,p95=0.39s | bag_ocr_name_roi_2_text_regions:avg=1.00s,max=1.00s,p95=1.00s | bag_ocr_name_roi_extract:avg=0.01s,max=0.01s,p95=0.01s | bag_ocr_name_roi_total:avg=2.36s,max=2.36s,p95=2.36s | bag_ocr_total:avg=2.36s,max=2.36s,p95=2.36s | bag_total:avg=0.00s,max=0.00s,p95=0.00s | bottle_classify:avg=0.46s,max=0.46s,p95=0.46s | bottle_count:avg=5.00s,max=5.00s,p95=5.00s | bottle_match:avg=0.04s,max=0.04s,p95=0.04s | bottle_ocr_angle_cls:avg=0.29s,max=0.29s,p95=0.29s | bottle_ocr_angle_pred:avg=45.00s,max=45.00s,p95=45.00s | bottle_ocr_fallback_rknn_det:avg=1.69s,max=1.69s,p95=1.69s | bottle_ocr_fallback_rknn_det_infer:avg=1.64s,max=1.64s,p95=1.64s | bottle_ocr_fallback_rknn_rec:avg=1.90s,max=1.90s,p95=1.90s | bottle_ocr_fallback_text_regions:avg=5.00s,max=5.00s,p95=5.00s | bottle_ocr_rknn_det:avg=2.77s,max=2.77s,p95=2.77s | bottle_ocr_rknn_det_infer:avg=2.24s,max=2.24s,p95=2.24s | bottle_ocr_rknn_rec:avg=4.20s,max=4.20s,p95=4.20s | bottle_ocr_text_regions:avg=125.00s,max=125.00s,p95=125.00s | bottle_ocr_total:avg=10.85s,max=10.85s,p95=10.85s | bottle_total:avg=0.50s,max=0.50s,p95=0.50s | crop:avg=0.02s,max=0.02s,p95=0.02s | prepare_and_recognition:avg=5.84s,max=5.84s,p95=5.84s | recognition_tasks:avg=6.19s,max=6.19s,p95=6.19s | runtime_excluding_model_init:avg=6.19s,max=6.19s,p95=6.19s | select_sharpest:avg=0.33s,max=0.33s,p95=0.33s | shuye_count:avg=2.00s,max=2.00s,p95=2.00s | shuye_ocr_angle_cls:avg=0.05s,max=0.05s,p95=0.05s | shuye_ocr_preprocess:avg=0.04s,max=0.04s,p95=0.04s | shuye_ocr_rknn_det:avg=0.76s,max=0.76s,p95=0.76s | shuye_ocr_rknn_det_infer:avg=0.66s,max=0.66s,p95=0.66s | shuye_ocr_rknn_rec:avg=0.75s,max=0.75s,p95=0.75s | shuye_ocr_text_regions:avg=12.00s,max=12.00s,p95=12.00s | shuye_ocr_total:avg=1.61s,max=1.61s,p95=1.61s | shuye_total:avg=0.00s,max=0.00s,p95=0.00s | target_count:avg=8.00s,max=8.00s,p95=8.00s
+
+[单线程顺序处理完成] 耗时: 6.19s, 完成任务: 8/8
+
+============================================================
+【处理结果汇总】
+  药瓶: 5 个
+  药袋: 1 个
+  输液袋: 2 个
+============================================================
+  药瓶 1: 注射用头孢曲松钠 (方式: sift_template, 置信度: 0.0496, SIFT good=6, score=0.0153)
+  药瓶 2: 注射用门冬氨酸鸟氨酸 (方式: sift_template, 置信度: 0.0586, SIFT good=2, score=0.0060)
+  药瓶 3: 注射用多种维生素 (方式: sift_template, 置信度: 0.0545, SIFT good=4, score=0.0119)
+  药瓶 4: 注射用美罗培南 (方式: sift_template, 置信度: 0.0353, SIFT good=2, score=0.0060)
+  药瓶 5: 注射用炎琥宁 (方式: sift_template, 置信度: 0.0301, SIFT good=3, score=0.0080)
+
+🏥 识别药品（去重后）: ['注射用多种维生素', '注射用门冬氨酸鸟氨酸', '注射用头孢曲松钠', '注射用炎琥宁', '注射用美罗培南']
+  药袋 1: 患者 ['赵二虎']
+
+👤 患者姓名: ['赵二虎']
+  输液袋 1: 液体=葡萄糖注射液, 浓度=10%, 容量=100ml, 状态=done
+  输液袋 2: 液体=None, 浓度=None, 容量=None, 状态=ocr_empty
+
+💧 输液袋信息: [{'liquid': '葡萄糖注射液', 'concentration': '10%', 'volume': '100ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 GlucoseInjection 10% 100ml', 'missing': [], 'status': 'done'}, {'liquid': None, 'concentration': None, 'volume': None, 'raw_text': '', 'missing': ['liquid', 'concentration', 'volume'], 'status': 'ocr_empty'}]
+💧 输液袋结构化信息: [{'index': 0, 'liquid': '葡萄糖注射液', 'concentration': '10%', 'volume': '100ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 GlucoseInjection 10% 100ml', 'status': 'done'}, {'index': 1, 'liquid': None, 'concentration': None, 'volume': None, 'raw_text': '', 'status': 'ocr_empty'}]
+利用“魏理想”作为测试病人
+
+============================================================
+【数据库匹配结果】
+  患者: ['赵二虎']
+  识别药品: ['注射用多种维生素', '注射用门冬氨酸鸟氨酸', '注射用头孢曲松钠', '注射用炎琥宁', '注射用美罗培南']
+  输液袋信息: [{'liquid': '葡萄糖注射液', 'concentration': '10%', 'volume': '100ml', 'raw_text': '供静脉注射或滴注 葡萄糖注射液 GlucoseInjection 10% 100ml', 'missing': [], 'status': 'done'}, {'liquid': None, 'concentration': None, 'volume': None, 'raw_text': '', 'missing': ['liquid', 'concentration', 'volume'], 'status': 'ocr_empty'}]
+  数据库药品: ['注射用头孢曲松钠', '注射用头孢西丁钠']
+  ❌ 缺少: ['注射用门冬氨酸鸟氨酸', '注射用炎琥宁', '注射用美罗培南', '注射用多种维生素']
+     多余: ['注射用头孢西丁钠']
+============================================================
+
+⏱ 总耗时: 6.19s (多线程处理: 6.19s)
+🔓 后台处理完成⏳ join 后台处理线程...
+
+✅ 完成！总帧数: 45
+数据库已断开连接

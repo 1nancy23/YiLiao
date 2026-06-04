@@ -1,6 +1,9 @@
 project:
   name: "Medical Image Detect"
 
+runtime:
+  trigger_interval: 5
+
 crop_region:  # 识别区域
   x_min: 640
   x_max: 1920
@@ -10,7 +13,7 @@ crop_region:  # 识别区域
 RTSP:
   username: "admin"
   password: "a1b2c3d4"
-  ip_address: "192.168.1.168"
+  ip_address: "192.168.254.5"
   port: "554"
   channel: "201"
 

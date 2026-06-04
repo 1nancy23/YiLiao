@@ -8,7 +8,7 @@ from src.stream.stream_reader import RTSPStreamReader
 class VideoStream:
     """封装RTSP视频流获取逻辑"""
 
-    def __init__(self, rtsp_url, target_fps=15, max_buffer_size=30):
+    def __init__(self, rtsp_url, target_fps=15, max_buffer_size=5):
         """
         初始化视频流
 

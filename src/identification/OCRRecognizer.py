@@ -1,4 +1,5 @@
 import cv2
+import os
 import re
 import time
 import numpy as np
@@ -11,6 +12,8 @@ import time
 import cv2
 import numpy as np
 import re
+
+_CHINESE_ONLY_RE = re.compile(r'[^\u4e00-\u9fff]')
 
 
 # ==================== 字符字典加载 ====================
@@ -288,7 +291,6 @@ def resize_for_rec(crop_img, target_h=48, target_w=160):
     # 右侧补零（黑色填充）
     padded = np.zeros((target_h, target_w, c), dtype=resized.dtype)
     padded[:, :resized_w, :] = resized
-    cv2.imwrite("padded.png", padded)
     # print(f"填充后的图像尺寸: {padded.shape}")
     return padded
 
@@ -589,10 +591,27 @@ class OCRRecognizer:
             line_gap_threshold=line_gap_threshold
         )
 def _normalize_ocr_unit_text(text):
-    text = text.replace(" ", "")
-    text = text.replace("％", "%")
-    text = text.replace("Ｍ", "M").replace("ｍ", "m")
-    text = text.replace("Ｌ", "L").replace("ｌ", "l")
+    text = str(text or "").replace(" ", "")
+    replacements = {
+        "％": "%",
+        "﹪": "%",
+        "﹒": ".",
+        "，": ".",
+        "。": ".",
+        "ｍ": "m",
+        "Ｍ": "m",
+        "L": "l",
+        "毫升": "ml",
+        "m1": "ml",
+        "Ml": "ml",
+        "ML": "ml",
+        "１": "1",
+        "０": "0",
+        "５": "5",
+        "９": "9",
+    }
+    for src, dst in replacements.items():
+        text = text.replace(src, dst)
     return text.lower()
 
 
@@ -606,86 +625,236 @@ def _normalize_concentration_value(number_text):
     value_text = number_text.strip()
     if not value_text:
         return None
+    value_text = value_text.replace("l", "1").replace("I", "1").replace("O", "0").replace("o", "0")
+    if len(value_text.replace(".", "")) > 3:
+        if "10" in value_text:
+            value_text = "10"
+        elif "09" in value_text or "0.9" in value_text:
+            value_text = "0.9"
+        elif "5" in value_text:
+            value_text = "5"
+    if value_text in ("110", "l10", "i10"):
+        value_text = "10"
+    elif value_text in ("05", "050"):
+        value_text = "5"
 
     try:
         value = float(value_text)
     except ValueError:
         return None
 
-    # Known infusion-bag concentrations in this project. Restricting fallback
-    # inference to these values avoids turning unrelated numbers into percents.
     allowed = [
         (0.9, "0.9%"),
         (5.0, "5%"),
         (10.0, "10%"),
     ]
-
     for allowed_value, label in allowed:
         if abs(value - allowed_value) < 1e-6:
             return label
 
-    # 0.9% is easy to OCR as "09" or "9" when the decimal point is missed.
     if value_text in ("09", "9"):
         return "0.9%"
+    return None
 
+
+def _normalize_liquid_name(text):
+    if not text:
+        return None
+    compact = re.sub(r'\s+', '', text)
+    if re.search(r'g[l1i!t]u[c(<]o?s|g[l1i!t]ucose|gluc0s|g1ucos|gtucos', compact, flags=re.IGNORECASE):
+        return "\u8461\u8404\u7cd6\u6ce8\u5c04\u6db2"
+    if "\u8461" in compact or "\u8404\u7cd6" in compact or "\u7cd6\u6ce8\u5c04\u6db2" in compact or "\u7cd6\u6ce8" in compact:
+        return "\u8461\u8404\u7cd6\u6ce8\u5c04\u6db2"
+    if re.search(r'sodiumchloride|nacl', compact, flags=re.IGNORECASE):
+        return "\u6c2f\u5316\u94a0\u6ce8\u5c04\u6db2"
+    if "\u6c2f\u5316\u94a0" in compact or "\u5316\u94a0\u6ce8\u5c04\u6db2" in compact or "\u751f\u7406\u76d0\u6c34" in compact:
+        return "\u6c2f\u5316\u94a0\u6ce8\u5c04\u6db2"
+    if "葡萄糖" in text or "萄糖注射液" in text:
+        return "葡萄糖注射液"
+    if "氯化钠" in text or "化钠注射液" in text:
+        return "氯化钠注射液"
+    if "静脉输液" in text:
+        return "静脉输液"
+    return None
+
+
+def _normalize_volume_value(number_text):
+    text = _format_number_text(number_text)
+    digits = text.replace(".", "")
+    if digits.endswith("100"):
+        return "100ml"
+    if digits.endswith("250"):
+        return "250ml"
+    if digits.endswith("500"):
+        return "500ml"
+    return f"{text}ml"
+
+
+def _normalize_infusion_parse_text(text):
+    text = _normalize_ocr_unit_text(text)
+    text = text.replace("\uff05", "%")
+    text = text.replace("\u2018", "").replace("\u2019", "")
+    text = text.replace("\u3010", "").replace("\u3011", "")
+    text = text.replace("\uff08", "").replace("\uff09", "")
+    return text
+
+
+def _extract_liquid_from_text(text):
+    liquid = _normalize_liquid_name(text)
+    if liquid:
+        return liquid
+    m = re.search(r'[\u4e00-\u9fa5]{1,14}\u6ce8\u5c04\u6db2', text)
+    if m:
+        return _normalize_liquid_name(m.group())
+    return None
+
+
+def _is_valid_liquid_name(text):
+    if not text:
+        return False
+    if text in ("\u8461\u8404\u7cd6\u6ce8\u5c04\u6db2", "\u6c2f\u5316\u94a0\u6ce8\u5c04\u6db2"):
+        return True
+    if "\u6ce8\u5c04\u6db2" in text and re.search(r'[\u4e00-\u9fa5]{2,}', text):
+        return True
+    if "\u9759\u8109\u8f93\u6db2" in text:
+        return True
+    return False
+
+
+def _extract_concentration_from_text(text):
+    candidates = []
+    for m in re.finditer(r'(\d{1,3}(?:\.\d+)?)\s*[%\uff05]', text):
+        value = _normalize_concentration_value(m.group(1))
+        if value:
+            candidates.append(value)
+    if candidates:
+        return candidates[0], "explicit_percent"
+
+    compact = re.sub(r'\s+', '', text)
+    for value in ("0.9", "10", "5"):
+        if re.search(rf'(?<!\d){re.escape(value)}(?!\d)', compact):
+            normalized = _normalize_concentration_value(value)
+            if normalized:
+                return normalized, "inferred_number"
+    return None, None
+
+
+def _extract_volume_from_text(text):
+    for m in re.finditer(r'(\d{2,4})(?:\s*(?:ml|m1|m|l))', text, flags=re.IGNORECASE):
+        value = _normalize_volume_value(m.group(1))
+        if value in ("50ml", "100ml", "250ml", "500ml"):
+            return value
+    for value in ("500", "250", "100", "50"):
+        if re.search(rf'(?<!\d){value}(?!\d)', text):
+            return f"{value}ml"
     return None
 
 
 def parse_required_fields(result):
-    drug_name = None
+    liquid = None
     concentration = None
+    concentration_source = None
     volume = None
     normalized_texts = []
+    raw_texts = []
 
     if result is None or len(result) == 0 or result[0] is None:
-        raise ValueError("OCR没有检测到任何文本")
+        return {
+            "liquid": None,
+            "concentration": None,
+            "volume": None,
+            "raw_text": "",
+            "missing": ["liquid", "concentration", "volume"],
+            "status": "ocr_empty",
+        }
 
     for line in result[0]:
-        text = line[1][0]
-        text = _normalize_ocr_unit_text(text)
+        text = str(line[1][0] or "")
+        raw_texts.append(text)
+        text = _normalize_infusion_parse_text(text)
         normalized_texts.append(text)
 
-        m = re.search(r'[\u4e00-\u9fa5]+液', text)
+        parsed_liquid = _extract_liquid_from_text(text)
+        if parsed_liquid:
+            liquid = parsed_liquid
+
+        parsed_concentration, parsed_source = _extract_concentration_from_text(text)
+        if parsed_concentration:
+            concentration = parsed_concentration
+            concentration_source = parsed_source
+
+        parsed_volume = _extract_volume_from_text(text)
+        if parsed_volume:
+            volume = parsed_volume
+
+        m = re.search(r'[\u4e00-\u9fa5]{1,20}液', text)
         if m:
-            drug_name = m.group()
+            liquid = _normalize_liquid_name(m.group())
 
         m = re.search(r'(\d+(?:\.\d+)?)%', text)
         if m:
-            concentration = _normalize_concentration_value(m.group(1))
-            if concentration is None:
-                concentration = f"{_format_number_text(m.group(1))}%"
+            normalized_concentration = _normalize_concentration_value(m.group(1))
+            if normalized_concentration is not None:
+                concentration = normalized_concentration
+                concentration_source = "explicit_percent"
 
-        m = re.search(r'(\d+(?:\.\d+)?)(?:ml|m1|毫升)', text)
+        m = re.search(r'(\d+(?:\.\d+)?)(?:ml)', text)
         if m:
-            volume = f"{_format_number_text(m.group(1))}ml"
+            volume = _normalize_volume_value(m.group(1))
 
     if concentration is None:
-        # The percent sign is very small and often missed. If OCR gets a known
-        # concentration number such as "0.9", "5", "10", or "09" while volume
-        # is on a separate "100ml" line, infer the missing percent sign.
         for text in normalized_texts:
-            if re.search(r'(?:ml|m1|毫升)', text):
+            if re.search(r'(?:ml)', text):
+                continue
+            if not re.fullmatch(r'\d+(?:\.\d+)?', text):
                 continue
             numbers = re.findall(r'\d+(?:\.\d+)?', text)
             if len(numbers) != 1:
                 continue
-
             inferred = _normalize_concentration_value(numbers[0])
             if inferred is not None:
                 concentration = inferred
+                concentration_source = "inferred_number"
                 break
 
-    if drug_name is None:
-        raise ValueError("未检测到完整的 XXX液")
-
+    joined_normalized = " ".join(normalized_texts)
+    if liquid is None:
+        liquid = _extract_liquid_from_text(joined_normalized)
     if concentration is None:
-        raise ValueError("未检测到完整的 xx%")
-
+        concentration, concentration_source = _extract_concentration_from_text(joined_normalized)
     if volume is None:
-        raise ValueError("未检测到完整的 xxml")
+        volume = _extract_volume_from_text(joined_normalized)
+    if not _is_valid_liquid_name(liquid):
+        liquid = None
 
-    return drug_name, concentration, volume
+    raw_text_joined = " ".join(raw_texts)
+    if (
+        concentration == "0.9%"
+        and concentration_source == "inferred_number"
+        and liquid
+        and "葡萄糖" in liquid
+        and "0.9" not in raw_text_joined
+        and "0,9" not in raw_text_joined
+        and "%" not in raw_text_joined
+    ):
+        concentration = None
 
+    missing = []
+    if liquid is None:
+        missing.append("liquid")
+    if concentration is None:
+        missing.append("concentration")
+    if volume is None:
+        missing.append("volume")
+
+    return {
+        "liquid": liquid,
+        "concentration": concentration,
+        "volume": volume,
+        "raw_text": raw_text_joined,
+        "missing": missing,
+        "status": "done" if not missing else "partial",
+    }
 # ==================== 调试工具函数 ====================
 
 def visualize_detection(img, boxes, save_path='det_result.jpg'):
@@ -746,7 +915,8 @@ def debug_single_image(det_model, rec_model, char_dict, img_path):
         if crop is None:
             continue
         processed = resize_for_rec(crop, 48, 160)
-        batch_data = np.stack([processed] * 16, axis=0)  # padding to batch
+        batch_data = np.zeros((16,) + processed.shape, dtype=processed.dtype)
+        batch_data[0] = processed
 
         rec_outputs = rec_model.inference(inputs=[batch_data])
         print(f"识别模型输出shape: {rec_outputs[0].shape}")
@@ -783,8 +953,13 @@ class OCRRecognizer_ori:
         # self.image_processor = image_processor or ImageProcessor()
 
         self.cls_model = RKNNLite()
-        self.cls_model.load_rknn("/home/forlinx/Models/AnotherYiliao/shibie/YiLiaoShiBie/model_cls.rknn")
+        cls_model_path = os.environ.get(
+            "YILIAO_CLS_MODEL",
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "model_cls.rknn"))
+        )
+        self.cls_model.load_rknn(cls_model_path)
         CLS = self.cls_model.init_runtime(core_mask=RKNNLite.NPU_CORE_1)
+        self.last_timing = {}
     def recognize(self, image, line_gap_threshold=20):
         """
         识别图像中的文字，返回过滤后的汉字字符串。
@@ -822,16 +997,22 @@ class OCRRecognizer_ori:
         # corrected_img = corrected_img.mutable_data(paddle.CPUPlace()).numpy()
         # print(corrected_img.shape)
         start = time.time()
+        self.last_timing = {}
         print("开始角度分类")
+        t_angle = time.time()
         input_nchw = cv2.resize(image, (224, 224))
-        batch_data = np.stack([input_nchw]*1, axis=0)
+        batch_data = input_nchw[None, ...]
         outputs = self.cls_model.inference(inputs=[batch_data])
         outputs = outputs[0]
         pred_indices = np.argmax(outputs, axis=1)  # 形状 (20,)
         pred = pred_indices[0]
         image=reverse_rotate_with_label(image, pred)
+        self.last_timing["angle_cls"] = time.time() - t_angle
         print("完成角度旋转")
+        t_ocr = time.time()
         result = self.rec_model.ocr(image, det=True, rec=True)
+        self.last_timing["paddle_ocr"] = time.time() - t_ocr
+        self.last_timing["total"] = time.time() - start
         print(f'识别用时:{time.time() - start:.3f}s')
         # del corrected_img
         del image
@@ -846,7 +1027,7 @@ class OCRRecognizer_ori:
                 bbox = line[0]
                 text = line[1][0]
                 # 只保留汉字
-                text = re.sub(r'[^\u4e00-\u9fff]', '', text)
+                text = _CHINESE_ONLY_RE.sub('', text)
                 if not text:
                     continue
                 y_coords = [point[1] for point in bbox]
@@ -876,15 +1057,21 @@ class OCRRecognizer_ori:
         # print(f'识别用时:{time.time() - start:.3f}s')
         return ''.join(lines)
     def recognize_yaodai(self, image, line_gap_threshold=20):
-        
+        start = time.time()
+        self.last_timing = {}
+        t_angle = time.time()
         input_nchw = cv2.resize(image, (224, 224))
-        batch_data = np.stack([input_nchw]*1, axis=0)
+        batch_data = input_nchw[None, ...]
         outputs = self.cls_model.inference(inputs=[batch_data])
         outputs = outputs[0]
         pred_indices = np.argmax(outputs, axis=1)  # 形状 (20,)
         pred = pred_indices[0]
         image=reverse_rotate_with_label(image, pred)
+        self.last_timing["angle_cls"] = time.time() - t_angle
+        t_ocr = time.time()
         result = self.rec_model.ocr(image, det=True, rec=True)
+        self.last_timing["paddle_ocr"] = time.time() - t_ocr
+        self.last_timing["total"] = time.time() - start
         # del corrected_img
         del image
         ##原始利用paddleocr模型识别文本
@@ -898,7 +1085,7 @@ class OCRRecognizer_ori:
                 bbox = line[0]
                 text = line[1][0]
                 # 只保留汉字
-                text = re.sub(r'[^\u4e00-\u9fff]', '', text)
+                text = _CHINESE_ONLY_RE.sub('', text)
                 if not text:
                     continue
                 y_coords = [point[1] for point in bbox]
@@ -927,61 +1114,74 @@ class OCRRecognizer_ori:
     
         # return "-----"
     def recognize_shuyedai(self, image, line_gap_threshold=20):
-        # 转 HSV
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        start = time.time()
+        self.last_timing = {}
 
-        # 蓝色范围，需要根据实际图片微调
+        t_pre = time.time()
+        variants = []
+        source = image.copy()
+        variants.append(("full", source))
+
+        hsv = cv2.cvtColor(source, cv2.COLOR_BGR2HSV)
         lower_blue = np.array([90, 50, 40])
         upper_blue = np.array([145, 255, 255])
-
-        # 提取蓝色区域 mask
         mask_blue = cv2.inRange(hsv, lower_blue, upper_blue)
-
-        # 形态学操作，去噪并连接蓝色区域
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (12,12))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (12, 12))
         mask_blue = cv2.morphologyEx(mask_blue, cv2.MORPH_CLOSE, kernel, iterations=2)
         mask_blue = cv2.morphologyEx(mask_blue, cv2.MORPH_OPEN, kernel, iterations=1)
-
-        # 查找蓝色区域轮廓
         contours, _ = cv2.findContours(mask_blue, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        # 找最大蓝色区域，通常就是蓝底文字区域
-        if len(contours) > 0:
+        if contours:
             c = max(contours, key=cv2.contourArea)
             x, y, w, h = cv2.boundingRect(c)
-
-            # 适当扩大边界
-            pad = 10
+            pad = 20
             x1 = max(x - pad, 0)
             y1 = max(y - pad, 0)
-            x2 = min(x + w + pad, image.shape[1])
-            y2 = min(y + h + pad, image.shape[0])
+            x2 = min(x + w + pad, source.shape[1])
+            y2 = min(y + h + pad, source.shape[0])
+            variants.insert(0, ("blue_label", source[y1:y2, x1:x2]))
 
-            image = image[y1:y2, x1:x2]
-        else:
-            image = image.copy()
-        
-        ###完成新药袋的ocr检测
-        input_nchw = cv2.resize(image, (224, 224))
-        batch_data = np.stack([input_nchw]*1, axis=0)
-        outputs = self.cls_model.inference(inputs=[batch_data])
-        outputs = outputs[0]
-        pred_indices = np.argmax(outputs, axis=1)  # 形状 (20,)
-        pred = pred_indices[0]
-        
-        image = cv2.resize(image, (448, 448))
-        image=reverse_rotate_with_label(image, pred)
-        
-        result=self.rec_model.ocr(image, det=True, rec=True)
-        print("初始检测结果")
-        print(result)
-        if result==None:
-            return
-        cv2.imwrite("image.png", image)
-        result=parse_required_fields(result)
-        print(result)
-        # del corrected_img
-    def recognize_batch(self, image_list, line_gap_threshold=20):
+        self.last_timing["preprocess"] = time.time() - t_pre
+
+        merged_lines = []
+        angle_total = 0.0
+        resize_total = 0.0
+        ocr_total = 0.0
+        used_variants = []
+
+        for name, variant in variants:
+            if variant is None or variant.size == 0:
+                continue
+            used_variants.append(name)
+
+            t_angle = time.time()
+            input_nchw = cv2.resize(variant, (224, 224))
+            batch_data = input_nchw[None, ...]
+            outputs = self.cls_model.inference(inputs=[batch_data])
+            pred = int(np.argmax(outputs[0], axis=1)[0])
+            angle_total += time.time() - t_angle
+
+            t_resize = time.time()
+            ocr_image = cv2.resize(variant, (448, 448))
+            ocr_image = reverse_rotate_with_label(ocr_image, pred)
+            resize_total += time.time() - t_resize
+
+            t_ocr = time.time()
+            result = self.rec_model.ocr(ocr_image, det=True, rec=True)
+            ocr_total += time.time() - t_ocr
+
+            if result and result[0]:
+                merged_lines.extend(result[0])
+
+        self.last_timing["angle_cls"] = angle_total
+        self.last_timing["resize_rotate"] = resize_total
+        self.last_timing["paddle_ocr"] = ocr_total
+        self.last_timing["variants"] = len(used_variants)
+        self.last_timing["total"] = time.time() - start
+
+        if not merged_lines:
+            return parse_required_fields(None)
+        return parse_required_fields([merged_lines])
+        # del corrected_img    def recognize_batch(self, image_list, line_gap_threshold=20):
         """
         批量识别图像列表中的文字。
         :param image_list: 图像列表（numpy 数组或文件路径）

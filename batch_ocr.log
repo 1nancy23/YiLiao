@@ -1,0 +1,300 @@
+/home/forlinx/Models/Python2/lib/python3.9/site-packages/fuzzywuzzy/fuzz.py:11: UserWarning: Using slow pure-python SequenceMatcher. Install python-Levenshtein to remove this warning
+  warnings.warn('Using slow pure-python SequenceMatcher. Install python-Levenshtein to remove this warning')
+数据库连接成功
+✅ 已加载 29 个药品名称
+✅ 已加载 20 个患者名称
+所有患者 ['魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想', '魏理想']
+W rknn-toolkit-lite2 version: 2.3.2
+I RKNN: [08:15:52.517] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [08:15:52.517] RKNN Driver Information, version: 0.9.8
+I RKNN: [08:15:52.517] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+[特征缓存] 已从 ./single_image_feature_cache.pkl 加载 29 种药品特征
+[初始化完成] 已加载 29 种药品特征到内存
+初始化 RKNN OCR 实例池...
+W rknn-toolkit-lite2 version: 2.3.2
+I RKNN: [08:15:52.610] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [08:15:52.610] RKNN Driver Information, version: 0.9.8
+I RKNN: [08:15:52.610] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+W rknn-toolkit-lite2 version: 2.3.2
+I RKNN: [08:15:52.706] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [08:15:52.706] RKNN Driver Information, version: 0.9.8
+I RKNN: [08:15:52.706] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+W rknn-toolkit-lite2 version: 2.3.2
+I RKNN: [08:15:52.858] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [08:15:52.858] RKNN Driver Information, version: 0.9.8
+I RKNN: [08:15:52.858] RKNN Model Information, version: 6, toolkit version: 2.3.2(compiler version: 2.3.2 (e045de294f@2025-04-07T19:48:25)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: dynamic_shape
+RKNN OCR 初始化完成: 1 个实例
+实时运行参数:
+  recognition_workers: 1
+  trigger_interval: 3.0
+  max_frames: 45
+  quiet_ocr: True
+  headless: True
+  ocr_instances: 1
+
+============================================================
+启动实时视频识别: YOLO + RKNN OCR + SIFT
+============================================================
+RTSP 参数:
+{'username': 'admin', 'password': 'a1b2c3d4', 'ip_address': '192.168.254.5', 'port': '554', 'channel': '201'}
+📋 OCR 模型分配:
+  OCR/SIFT 后台识别: 单线程顺序处理
+  实际 OCR 实例: 1 个
+  使用第 1 个 OCR 实例处理所有药瓶/药袋/输液袋任务
+  headless显示模式: True
+RTSP: rtsp://admin:****@192.168.254.5:554/Streaming/Channels/201
+🔄 正在连接 RTSP 流...
+✅ RTSP连接成功！分辨率: 3840x2160, 帧率: 20.0
+Connecting RTSP stream...
+W rknn-toolkit-lite2 version: 2.3.2
+I RKNN: [08:15:54.364] RKNN Runtime Information, librknnrt version: 2.3.2 (429f97ae6b@2025-04-09T09:09:27)
+I RKNN: [08:15:54.364] RKNN Driver Information, version: 0.9.8
+I RKNN: [08:15:54.364] RKNN Model Information, version: 6, toolkit version: 1.6.0+81f21f4d(compiler version: 1.6.0 (585b3edcf@2023-12-11T07:56:14)), target: RKNPU v2, target platform: rk3588, framework name: ONNX, framework layout: NCHW, model inference type: static_shape
+W RKNN: [08:15:54.410] query RKNN_QUERY_INPUT_DYNAMIC_RANGE error, rknn model is static shape type, please export rknn with dynamic_shapes
+W Query dynamic range failed. Ret code: RKNN_ERR_MODEL_INVALID. (If it is a static shape RKNN model, please ignore the above warning message.)
+0
+
+============================================================
+🚀 实时目标检测已启动 YOLOv8 + 切片处理
+  批量帧数: 1
+  自动触发间隔: 3.0 秒
+  按键: 'q'-退出  's'-截图  'r'-切换模式
+============================================================
+
+
+⏰ 定时触发 → 后台线程已启动
+最清晰帧: 批次 1/2 中的第 1 张
+检测结果: 药袋 0 个, 药瓶 5 个, 输液袋 2 个
+
+============================================================
+[单线程顺序处理] 共 7 个任务: 药瓶 5, 药袋 0, 输液袋 2
+============================================================
+E RKNN: [08:15:57.789] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:15:57.789] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:15:57.789] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:15:57.803] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:15:57.804] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:15:57.804] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:15:57.835] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:15:57.835] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:15:57.835] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:15:57.852] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:15:57.852] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:15:57.852] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:15:57.864] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:15:57.864] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:15:57.864] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:15:57.878] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:15:57.879] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:15:57.879] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:15:57.909] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:15:57.909] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:15:57.909] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:15:57.930] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:15:57.931] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:15:57.931] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+
+[Timing Summary last 1] background_total:avg=0.49s,max=0.49s,p95=0.49s | bag_count:avg=0.00s,max=0.00s,p95=0.00s | bottle_count:avg=5.00s,max=5.00s,p95=5.00s | bottle_total:avg=0.09s,max=0.09s,p95=0.09s | crop:avg=0.00s,max=0.00s,p95=0.00s | prepare_and_recognition:avg=0.20s,max=0.20s,p95=0.20s | recognition_tasks:avg=0.49s,max=0.49s,p95=0.49s | runtime_excluding_model_init:avg=0.49s,max=0.49s,p95=0.49s | select_sharpest:avg=0.29s,max=0.29s,p95=0.29s | shuye_count:avg=2.00s,max=2.00s,p95=2.00s | shuye_total:avg=0.05s,max=0.05s,p95=0.05s | target_count:avg=7.00s,max=7.00s,p95=7.00s
+
+[单线程顺序处理完成] 耗时: 0.49s, 完成任务: 7/7
+
+============================================================
+【处理结果汇总】
+  药瓶: 5 个
+  药袋: 0 个
+  输液袋: 2 个
+============================================================
+
+🏥 识别药品（去重后）: []
+
+⚠️ 未识别到患者姓名
+  输液袋 1: 液体=None, 浓度=None, 容量=None, 状态=error: 'NoneType' object is not subscriptable
+  输液袋 2: 液体=None, 浓度=None, 容量=None, 状态=error: 'NoneType' object is not subscriptable
+
+⚠️ 未识别到输液袋信息
+
+⚠️ 跳过数据库比对：缺少患者姓名/药品信息，或当前匹配器不支持数据库校验
+
+⏱ 总耗时: 0.49s (多线程处理: 0.49s)
+🔓 后台处理完成
+[Detection Timing last 30] detect_batch:avg=0.15s,max=0.19s,p95=0.18s | detect_runtime_excluding_model_init:avg=0.15s,max=0.19s,p95=0.18s | fps:avg=6.74s,max=7.63s,p95=7.53s | frames:avg=1.00s,max=1.00s,p95=1.00s
+
+⏰ 定时触发 → 后台线程已启动
+最清晰帧: 批次 1/2 中的第 1 张
+检测结果: 药袋 1 个, 药瓶 5 个, 输液袋 2 个
+
+============================================================
+[单线程顺序处理] 共 8 个任务: 药瓶 5, 药袋 1, 输液袋 2
+============================================================
+E RKNN: [08:16:00.841] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:16:00.842] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:16:00.842] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:16:00.857] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:16:00.857] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:16:00.857] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:16:00.887] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:16:00.887] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:16:00.887] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:16:00.904] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:16:00.904] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:16:00.904] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:16:00.915] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:16:00.915] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:16:00.915] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:16:00.929] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:16:00.930] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:16:00.930] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:16:01.112] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:16:01.112] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:16:01.112] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:16:01.136] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:16:01.136] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:16:01.136] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+E RKNN: [08:16:01.155] rknn_set_input_shapes error, input name = x supported input shapes are as follows:
+E RKNN: [08:16:01.155] 	shape = [1,448,448,3], layout = NHWC
+E RKNN: [08:16:01.155] while get rknn_tensor_attr[0].name = x, dims = [8, 448, 448, 3], fmt = NHWC
+E Catch exception when setting inputs.
+E Traceback (most recent call last):
+  File "/home/forlinx/Models/Python2/lib/python3.9/site-packages/rknnlite/api/rknn_lite.py", line 209, in inference
+    self.rknn_runtime.set_inputs(inputs, data_type, data_format, inputs_pass_through=inputs_pass_through)
+  File "rknnlite/api/rknn_runtime.py", line 1142, in rknnlite.api.rknn_runtime.RKNNRuntime.set_inputs
+Exception: Set input shape failed. error code: RKNN_ERR_FAIL
+
+
+[Timing Summary last 2] background_total:avg=0.57s,max=0.65s,p95=0.65s | bag_count:avg=0.50s,max=1.00s,p95=1.00s | bag_total:avg=0.18s,max=0.18s,p95=0.18s | bottle_count:avg=5.00s,max=5.00s,p95=5.00s | bottle_total:avg=0.09s,max=0.09s,p95=0.09s | crop:avg=0.00s,max=0.00s,p95=0.00s | prepare_and_recognition:avg=0.29s,max=0.38s,p95=0.38s | recognition_tasks:avg=0.57s,max=0.65s,p95=0.65s | runtime_excluding_model_init:avg=0.57s,max=0.65s,p95=0.65s | select_sharpest:avg=0.28s,max=0.29s,p95=0.29s | shuye_count:avg=2.00s,max=2.00s,p95=2.00s | shuye_total:avg=0.05s,max=0.05s,p95=0.05s | target_count:avg=7.50s,max=8.00s,p95=8.00s
+
+[单线程顺序处理完成] 耗时: 0.65s, 完成任务: 8/8
+
+============================================================
+【处理结果汇总】
+  药瓶: 5 个
+  药袋: 1 个
+  输液袋: 2 个
+============================================================
+
+🏥 识别药品（去重后）: []
+
+⚠️ 未识别到患者姓名
+  输液袋 1: 液体=None, 浓度=None, 容量=None, 状态=error: 'NoneType' object is not subscriptable
+  输液袋 2: 液体=None, 浓度=None, 容量=None, 状态=error: 'NoneType' object is not subscriptable
+
+⚠️ 未识别到输液袋信息
+
+⚠️ 跳过数据库比对：缺少患者姓名/药品信息，或当前匹配器不支持数据库校验
+
+⏱ 总耗时: 0.65s (多线程处理: 0.65s)
+🔓 后台处理完成
+✅ 完成！总帧数: 45
+数据库已断开连接

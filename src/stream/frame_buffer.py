@@ -4,14 +4,14 @@ import threading
 class FrameBuffer:
     """线程安全的帧缓冲区 - 支持批量获取"""
 
-    def __init__(self, maxsize=30):
+    def __init__(self, maxsize=5):
         self.queue = queue.Queue(maxsize=maxsize)
         self.latest_frame = None
         self.lock = threading.Lock()
 
     def put(self, frame):
         with self.lock:
-            self.latest_frame = frame.copy()
+            self.latest_frame = frame
         try:
             self.queue.put_nowait(frame)
         except queue.Full:
@@ -23,7 +23,7 @@ class FrameBuffer:
 
     def get_latest(self):
         with self.lock:
-            return self.latest_frame.copy() if self.latest_frame is not None else None
+            return self.latest_frame if self.latest_frame is not None else None
 
     def get_batch(self, batch_size):
         """批量获取帧"""

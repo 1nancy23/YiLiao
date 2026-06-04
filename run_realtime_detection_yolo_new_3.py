@@ -328,7 +328,7 @@
 #     # 后台处理主函数
 #     # ============================================================
 
-#     def process_batch_in_background(snapshot_frames, snapshot_predictions):
+#     def process_batch_in_background(snapshot_frames, snapshot_predictions, keep_payload=False):
 #         """
 #         后台线程处理流程：
 
@@ -737,8 +737,9 @@
 import time
 import threading
 import traceback
+import os
+import re
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import cv2
 import numpy as np
@@ -747,6 +748,95 @@ from src.segmentation.segmenter_yolo import YOLOTileProcessor
 from src.processor.img_cropper import crop_image_by_coordinates
 from src.stream.video_stream import VideoStream
 from src.utils.img_utils import ImageProcessor
+from src.identification.realtime_recognition import process_task_group
+
+
+class TimingWindow:
+    def __init__(self, maxlen=20):
+        self.items = deque(maxlen=maxlen)
+
+    def add(self, timing):
+        self.items.append(dict(timing))
+
+    def summary(self):
+        if not self.items:
+            return {}
+
+        keys = sorted({key for item in self.items for key in item.keys()})
+        result = {}
+
+        for key in keys:
+            values = sorted(float(item[key]) for item in self.items if key in item)
+            if not values:
+                continue
+            p95_idx = min(len(values) - 1, int(round((len(values) - 1) * 0.95)))
+            result[key] = {
+                "avg": sum(values) / len(values),
+                "max": values[-1],
+                "p95": values[p95_idx],
+            }
+
+        return result
+
+
+def _fmt_timing_summary(summary):
+    parts = []
+    for key, stat in summary.items():
+        if key.endswith(("_count", "_inputs", "_batches", "_regions", "_pred")) or "text_regions" in key:
+            parts.append(
+                f"{key}:avg={stat['avg']:.1f},max={stat['max']:.0f},p95={stat['p95']:.0f}"
+            )
+            continue
+        parts.append(
+            f"{key}:avg={stat['avg']:.2f}s,max={stat['max']:.2f}s,p95={stat['p95']:.2f}s"
+        )
+    return " | ".join(parts)
+
+
+def _fmt_timing_items(timing, max_items=None):
+    if not timing:
+        return ""
+    items = sorted((key, float(value)) for key, value in timing.items())
+    if max_items is not None:
+        items = items[:max_items]
+    parts = []
+    for key, value in items:
+        if key.endswith(("_count", "_inputs", "_batches", "_regions", "_pred")) or "text_regions" in key:
+            parts.append(f"{key}={value:.0f}")
+        else:
+            parts.append(f"{key}={value:.4f}s")
+    return " | ".join(parts)
+
+
+def _finish_timed_result(result, start_time):
+    result.setdefault("timing_sec", {})
+    result["timing_sec"]["total"] = time.time() - start_time
+    result["timing_sec"] = {
+        key: round(float(value), 6)
+        for key, value in result["timing_sec"].items()
+    }
+    return result
+
+
+def _looks_like_bag_ocr_text(text):
+    text = str(text or "").strip()
+    if not text:
+        return False
+
+    compact = re.sub(r"\s+", "", text)
+    bag_terms = (
+        "床", "病区", "住院", "患者", "姓名", "年龄", "性别",
+        "输液", "静脉", "滴注", "滴速", "用法", "用量", "护士",
+        "二维码", "处方", "门诊", "医嘱"
+    )
+    if any(term in compact for term in bag_terms):
+        return True
+
+    if re.search(r"\d+\s*床", compact):
+        return True
+    if re.search(r"(qd|bid|tid|qid|q\d+h|ivgtt|iv)", compact, flags=re.IGNORECASE):
+        return True
+    return False
 
 
 def run_realtime_detection(
@@ -777,8 +867,21 @@ def run_realtime_detection(
         device=None,
         trigger_interval=15,
         classifier_thread_safe=True,
+        single_image_path=None,
+        single_image_output_json="./realtime_single_005_result.json",
+        recognition_workers=1,
+        simulate_patient_name="",
+        quiet_ocr=True,
+        headless=None,
 ):
     import gc
+    import builtins
+
+    runtime_logs = os.environ.get("YILIAO_RUNTIME_LOGS", "0").lower() in ("1", "true", "yes", "on")
+
+    def print(*args, **kwargs):
+        if runtime_logs:
+            builtins.print(*args, **kwargs)
 
     # ============================================================
     # OCR 识别器处理
@@ -787,49 +890,59 @@ def run_realtime_detection(
     if not isinstance(ocr_recognizer, (list, tuple)):
         ocr_recognizer = [ocr_recognizer]
 
-    if len(ocr_recognizer) < 8:
-        raise ValueError(f"ocr_recognizer 需要至少 8 个模型，当前只有 {len(ocr_recognizer)} 个")
+    if len(ocr_recognizer) == 0:
+        raise ValueError("ocr_recognizer 不能为空，请至少提供一个 OCR 识别器实例。")
 
-    # 分配 OCR 模型
-    bottle_ocr_models = ocr_recognizer[0:4]  # 前 4 个用于药瓶
-    bag_ocr_models = ocr_recognizer[4:6]     # 中间 2 个用于药袋
-    shuye_ocr_models = ocr_recognizer[6:8]   # 最后 2 个用于输液袋
+    # One recognizer owns the RKNN contexts. OCR is batched across all current
+    # targets, then matching/SIFT post-processing runs in order.
+    source_ocr_models = list(ocr_recognizer)
+    recognition_ocr_models = [source_ocr_models[0]]
+    print("  OCR/SIFT backend: multi-target OCR batch + ordered postprocess")
+    print("📋 OCR 模型分配:")
+    print("  OCR/SIFT 后台识别: 单线程顺序处理")
+    print(f"  实际 OCR 实例: {len(source_ocr_models)} 个")
+    print("  使用第 1 个 OCR 实例处理所有药瓶/药袋/输液袋任务")
 
-    print(f"📋 OCR 模型分配:")
-    print(f"  药瓶: {len(bottle_ocr_models)} 个模型")
-    print(f"  药袋: {len(bag_ocr_models)} 个模型")
-    print(f"  输液袋: {len(shuye_ocr_models)} 个模型")
+    if headless is None:
+        headless_env = os.environ.get("YILIAO_HEADLESS", "")
+        if headless_env:
+            headless = headless_env.lower() not in ("0", "false", "no")
+        else:
+            headless = not bool(os.environ.get("DISPLAY"))
+    print(f"  headless显示模式: {headless}")
+    verbose_runtime = runtime_logs and os.environ.get("YILIAO_VERBOSE_RUNTIME", "0").lower() not in ("0", "false", "no")
 
     # ============================================================
     # RTSP 连接
     # ============================================================
 
-    rtsp_url = (
-        f"rtsp://{username}:{password}@{ip_address}:{port}"
-        f"/Streaming/Channels/{channel}"
-    )
+    video_stream = None
+    if not single_image_path:
+        rtsp_url = (
+            f"rtsp://{username}:{password}@{ip_address}:{port}"
+            f"/Streaming/Channels/{channel}"
+        )
 
-    print(
-        f"📡 连接: rtsp://{username}:****@{ip_address}:{port}"
-        f"/Streaming/Channels/{channel}"
-    )
+        print(
+            f"RTSP: rtsp://{username}:****@{ip_address}:{port}"
+            f"/Streaming/Channels/{channel}"
+        )
 
-    video_stream = VideoStream(rtsp_url, target_fps=target_fps)
-    video_stream.start()
+        video_stream = VideoStream(rtsp_url, target_fps=target_fps)
+        video_stream.start()
 
-    print("⏳ 正在连接RTSP流...")
+        print("Connecting RTSP stream...")
 
-    timeout = 10
-    start_time = time.time()
+        timeout = 10
+        start_time = time.time()
 
-    while not video_stream.is_connected() and time.time() - start_time < timeout:
-        time.sleep(0.1)
+        while not video_stream.is_connected() and time.time() - start_time < timeout:
+            time.sleep(0.1)
 
-    if not video_stream.is_connected():
-        print("❌ 连接超时！")
-        video_stream.stop()
-        return
-
+        if not video_stream.is_connected():
+            print("RTSP connection timeout")
+            video_stream.stop()
+            return
     # ============================================================
     # YOLO 处理器
     # ============================================================
@@ -839,9 +952,20 @@ def run_realtime_detection(
         device=str(device),
         tile_size=640,
         overlap=64,
-        conf_thres=0.32,
-        iou_thres=0.9,
-        batch_size=1
+        conf_thres=0.45,
+        iou_thres=0.85,
+        batch_size=1,
+        contain_thres=0.92,
+        class_conf_thres={
+            0: 0.45,
+            1: 0.38,
+            2: 0.32,
+        },
+        class_iou_thres={
+            0: 0.65,
+            1: 0.65,
+            2: 0.45,
+        },
     )
 
     # ============================================================
@@ -850,7 +974,7 @@ def run_realtime_detection(
 
     video_writer = None
 
-    if save_video:
+    if save_video and video_stream is not None:
         out_w = (
             video_stream.stream_reader.frame_width * 2
             if output_type == 'side_by_side'
@@ -903,14 +1027,12 @@ def run_realtime_detection(
     is_processing = threading.Event()
     processing_done = threading.Event()
     processing_done.set()
-
-    # 每个 OCR 实例对应一个锁
-    bottle_ocr_locks = [threading.Lock() for _ in bottle_ocr_models]
-    bag_ocr_locks = [threading.Lock() for _ in bag_ocr_models]
-    shuye_ocr_locks = [threading.Lock() for _ in shuye_ocr_models]
+    bg_thread = None
 
     # 分类器锁
     classifier_lock = threading.Lock()
+    realtime_timing_window = TimingWindow(maxlen=20)
+    detection_timing_window = TimingWindow(maxlen=30)
 
     # ============================================================
     # 单个药瓶完整处理函数
@@ -929,8 +1051,10 @@ def run_realtime_detection(
             'candidates': None,
             'final_medicine': None,
             'confidence': None,
-            'status': ''
+            'status': '',
+            'timing_sec': {}
         }
+        t_total = time.time()
 
         print(f"\n--- [药瓶线程 {idx + 1}] 开始处理 ---")
 
@@ -941,8 +1065,14 @@ def run_realtime_detection(
             return result
 
         try:
+            t = time.time()
             with ocr_lock:
                 ocr_text = recognizer.recognize(bottle)
+            result['timing_sec']['ocr'] = time.time() - t
+            result['timing_sec'].update({
+                f"ocr_{key}": value
+                for key, value in getattr(recognizer, 'last_timing', {}).items()
+            })
 
         except Exception as e:
             result['status'] = f'OCR异常: {e}'
@@ -958,6 +1088,13 @@ def run_realtime_detection(
         result['ocr_text'] = ocr_text
         print(f"  药瓶 {idx + 1} OCR: {ocr_text}")
 
+        if _looks_like_bag_ocr_text(ocr_text):
+            result['type'] = 'bag_like_bottle'
+            result['status'] = 'bag-like OCR, skipped bottle recognition'
+            result['confidence'] = 0.0
+            print(f"  bottle {idx + 1}: bag-like OCR, skip drug matching")
+            return _finish_timed_result(result, t_total)
+
         # 药品候选匹配
         if drug_matcher is None:
             result['status'] = '药品匹配器未提供'
@@ -965,12 +1102,14 @@ def run_realtime_detection(
             return result
 
         try:
+            t = time.time()
             candidates = drug_matcher.match(
                 ocr_text,
                 match_type='bottle',
                 threshold=50,
                 limit=10
             )
+            result['timing_sec']['match'] = time.time() - t
 
         except Exception as e:
             result['status'] = f'药品匹配异常: {e}'
@@ -989,11 +1128,13 @@ def run_realtime_detection(
         # 分类器确认
         if classifier is not None:
             try:
+                t = time.time()
                 if classifier_thread_safe:
                     cls_res = classifier.classify(candidates, bottle)
                 else:
                     with classifier_lock:
                         cls_res = classifier.classify(candidates, bottle)
+                result['timing_sec']['classify'] = time.time() - t
 
                 best = cls_res.get('predicted_category', None)
                 conf = cls_res.get('confidence', 0.0)
@@ -1025,7 +1166,7 @@ def run_realtime_detection(
 
             print(f"  药瓶 {idx + 1}: 无分类器，使用候选首位 {candidates[0]}")
 
-        return result
+        return _finish_timed_result(result, t_total)
 
     # ============================================================
     # 单个药袋处理函数
@@ -1042,8 +1183,10 @@ def run_realtime_detection(
             'index': idx,
             'ocr_text': None,
             'patient_name': None,
-            'status': ''
+            'status': '',
+            'timing_sec': {}
         }
+        t_total = time.time()
 
         print(f"\n--- [药袋线程 {idx + 1}] 开始处理 ---")
 
@@ -1053,8 +1196,14 @@ def run_realtime_detection(
             return result
 
         try:
+            t = time.time()
             with ocr_lock:
                 ocr_text = recognizer.recognize_yaodai(bag)
+            result['timing_sec']['ocr'] = time.time() - t
+            result['timing_sec'].update({
+                f"ocr_{key}": value
+                for key, value in getattr(recognizer, 'last_timing', {}).items()
+            })
 
         except Exception as e:
             result['status'] = f'OCR异常: {e}'
@@ -1077,12 +1226,14 @@ def run_realtime_detection(
             return result
 
         try:
+            t = time.time()
             patient_name = drug_matcher.match(
                 ocr_text,
                 match_type='bag',
                 threshold=50,
                 limit=10
             )
+            result['timing_sec']['match'] = time.time() - t
 
             result['patient_name'] = patient_name
             result['status'] = '完成'
@@ -1094,7 +1245,7 @@ def run_realtime_detection(
             print(f"  药袋 {idx + 1}: 患者匹配异常: {e}")
             traceback.print_exc()
 
-        return result
+        return _finish_timed_result(result, t_total)
 
     # ============================================================
     # 单个输液袋处理函数
@@ -1110,8 +1261,14 @@ def run_realtime_detection(
             'type': 'shuye',
             'index': idx,
             'ocr_text': None,
-            'status': ''
+            'liquid': None,
+            'concentration': None,
+            'volume': None,
+            'raw_text': '',
+            'status': '',
+            'timing_sec': {}
         }
+        t_total = time.time()
 
         print(f"\n--- [输液袋线程 {idx + 1}] 开始处理 ---")
 
@@ -1121,8 +1278,14 @@ def run_realtime_detection(
             return result
 
         try:
+            t = time.time()
             with ocr_lock:
                 ocr_text = recognizer.recognize_shuyedai(shuye)
+            result['timing_sec']['ocr'] = time.time() - t
+            result['timing_sec'].update({
+                f"ocr_{key}": value
+                for key, value in getattr(recognizer, 'last_timing', {}).items()
+            })
 
         except Exception as e:
             result['status'] = f'OCR异常: {e}'
@@ -1135,18 +1298,27 @@ def run_realtime_detection(
             print(f"  输液袋 {idx + 1}: OCR无结果")
             return result
 
-        result['ocr_text'] = ocr_text
-        result['status'] = '完成'
+        if isinstance(ocr_text, dict):
+            result['ocr_text'] = ocr_text
+            result['liquid'] = ocr_text.get('liquid')
+            result['concentration'] = ocr_text.get('concentration')
+            result['volume'] = ocr_text.get('volume')
+            result['raw_text'] = ocr_text.get('raw_text', '')
+            result['status'] = ocr_text.get('status', '完成')
+        else:
+            result['ocr_text'] = ocr_text
+            result['raw_text'] = ocr_text or ''
+            result['status'] = '完成'
 
         print(f"  输液袋 {idx + 1} OCR: {ocr_text}")
 
-        return result
+        return _finish_timed_result(result, t_total)
 
     # ============================================================
     # 后台处理主函数
     # ============================================================
 
-    def process_batch_in_background(snapshot_frames, snapshot_predictions):
+    def process_batch_in_background(snapshot_frames, snapshot_predictions, keep_payload=False):
         """
         后台线程处理流程：
         1. 选择最清晰帧
@@ -1159,14 +1331,20 @@ def run_realtime_detection(
                 return
 
             t_start = time.time()
+            t_select_start = time.time()
 
             # ====================================================
             # 选择最清晰帧
             # ====================================================
 
-            best_frame, frame_pos = ImageProcessor.select_sharpest_image(
-                snapshot_frames
-            )
+            if len(snapshot_frames) == 1 and len(snapshot_frames[0]) == 1:
+                best_frame = snapshot_frames[0][0]
+                frame_pos = (0, 0)
+            else:
+                best_frame, frame_pos = ImageProcessor.select_sharpest_image(
+                    snapshot_frames
+                )
+            t_select_done = time.time()
 
             batch_idx, frame_idx = frame_pos
 
@@ -1181,6 +1359,7 @@ def run_realtime_detection(
             # 裁剪药袋、药瓶、输液袋
             # ====================================================
 
+            t_crop_start = time.time()
             cropped_bags, cropped_bottles, cropped_shuyes = processor.crop_by_class(
                 best_frame,
                 detections,
@@ -1188,6 +1367,7 @@ def run_realtime_detection(
                 bottle_class_id=0,
                 shuye_class_id=2,
             )
+            t_crop_done = time.time()
 
             print(
                 f"检测结果: 药袋 {len(cropped_bags)} 个, "
@@ -1200,40 +1380,30 @@ def run_realtime_detection(
             # ====================================================
 
             all_tasks = []
-            task_handlers = []
 
             # 药瓶任务
             for i, bottle in enumerate(cropped_bottles):
-                task = (
+                all_tasks.append((
+                    'bottle',
                     i,
                     bottle,
-                    bottle_ocr_models[i % len(bottle_ocr_models)],
-                    bottle_ocr_locks[i % len(bottle_ocr_locks)]
-                )
-                all_tasks.append(task)
-                task_handlers.append(('bottle', process_bottle_single))
+                ))
 
             # 药袋任务
             for i, bag in enumerate(cropped_bags):
-                task = (
+                all_tasks.append((
+                    'bag',
                     i,
                     bag,
-                    bag_ocr_models[i % len(bag_ocr_models)],
-                    bag_ocr_locks[i % len(bag_ocr_locks)]
-                )
-                all_tasks.append(task)
-                task_handlers.append(('bag', process_bag_single))
+                ))
 
             # 输液袋任务
             for i, shuye in enumerate(cropped_shuyes):
-                task = (
+                all_tasks.append((
+                    'shuye',
                     i,
                     shuye,
-                    shuye_ocr_models[i % len(shuye_ocr_models)],
-                    shuye_ocr_locks[i % len(shuye_ocr_locks)]
-                )
-                all_tasks.append(task)
-                task_handlers.append(('shuye', process_shuye_single))
+                ))
 
             if not all_tasks:
                 print("未检测到任何目标")
@@ -1241,7 +1411,12 @@ def run_realtime_detection(
 
             print(f"\n{'=' * 60}")
             print(
-                f"[多线程同步处理] 共 {len(all_tasks)} 个任务: "             
+                f"[Multi-target OCR batch] tasks={len(all_tasks)}, "
+                f"bottles={len(cropped_bottles)}, bags={len(cropped_bags)}, "
+                f"infusions={len(cropped_shuyes)}"
+            )
+            print(
+                f"[单线程顺序处理] 共 {len(all_tasks)} 个任务: "
                 f"药瓶 {len(cropped_bottles)}, "
                 f"药袋 {len(cropped_bags)}, "
                 f"输液袋 {len(cropped_shuyes)}"
@@ -1249,40 +1424,78 @@ def run_realtime_detection(
             print(f"{'=' * 60}")
 
             # ====================================================
-            # 多线程同步执行所有任务
+            # 单线程顺序执行所有 OCR/SIFT 任务
             # ====================================================
 
-            all_results = []
-
-            # 计算最大线程数：不超过总任务数和所有 OCR 模型数
-            max_workers = min(
-                len(all_tasks),
-                len(bottle_ocr_models) + len(bag_ocr_models) + len(shuye_ocr_models)
+            all_results = process_task_group(
+                all_tasks,
+                recognition_ocr_models[0],
+                drug_matcher,
+                classifier,
+                classifier is not None,
+                classifier_lock,
+                classifier_thread_safe,
+                quiet_ocr,
+                simulate_patient_name,
             )
-            max_workers = max(1, max_workers)
-
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = {}
-
-                for i, (task, (task_type, handler)) in enumerate(zip(all_tasks, task_handlers)):
-                    future = pool.submit(handler, task)
-                    futures[future] = (i, task_type)
-
-                for future in as_completed(futures):
-                    task_idx, task_type = futures[future]
-
-                    try:
-                        result = future.result(timeout=90)
-                        all_results.append(result)
-
-                    except Exception as e:
-                        print(f"  任务 {task_idx + 1} ({task_type}) 线程异常: {e}")
-                        traceback.print_exc()
 
             t_parallel_done = time.time()
 
+            batch_timing = {}
+
+            if verbose_runtime:
+                batch_timing = {
+                    "background_total": t_parallel_done - t_start,
+                    "select_sharpest": t_select_done - t_select_start,
+                    "crop": t_crop_done - t_crop_start,
+                    "prepare_and_recognition": t_parallel_done - t_crop_done,
+                    "recognition_tasks": t_parallel_done - t_start,
+                    "runtime_excluding_model_init": t_parallel_done - t_start,
+                    "target_count": len(all_tasks),
+                    "bottle_count": len(cropped_bottles),
+                    "bag_count": len(cropped_bags),
+                    "shuye_count": len(cropped_shuyes),
+                }
+                for item in all_results:
+                    prefix = item.get('type', 'unknown')
+                    for key, value in (item.get('timing_sec', {}) or {}).items():
+                        timing_key = f"{prefix}_{key}"
+                        if key.startswith((
+                            "ocr_mixed_",
+                            "ocr_bottle_angle_",
+                            "ocr_bag_angle_",
+                            "ocr_bag_name_roi_extract",
+                            "ocr_shuye_angle_",
+                            "ocr_shuye_roi_angle_",
+                            "ocr_shared_",
+                            "ocr_shuye_preprocess",
+                        )):
+                            batch_timing[timing_key] = max(
+                                batch_timing.get(timing_key, 0.0),
+                                float(value),
+                            )
+                        else:
+                            batch_timing[timing_key] = batch_timing.get(timing_key, 0.0) + float(value)
+
+                realtime_timing_window.add(batch_timing)
+                summary_text = _fmt_timing_summary(realtime_timing_window.summary())
+                if summary_text:
+                    print(f"\n[Timing Summary last {len(realtime_timing_window.items)}] {summary_text}")
+
+                print("\n[Step Timing Detail]")
+                print(f"  batch: {_fmt_timing_items(batch_timing)}")
+            for item in (sorted(all_results, key=lambda value: (value.get("type", ""), value.get("index", 0))) if verbose_runtime else []):
+                label = f"{item.get('type', 'unknown')}#{int(item.get('index', 0)) + 1}"
+                timing_text = _fmt_timing_items(item.get("timing_sec", {}))
+                status = item.get("status", "")
+                final_name = item.get("final_medicine") or item.get("patient_name") or item.get("liquid") or ""
+                decision = item.get("decision_reason", "")
+                print(f"  {label}: status={status}, result={final_name}, timing: {timing_text}")
+                if decision:
+                    print(f"    decision: {decision}")
+
             print(
-                f"\n[多线程同步处理完成] "
+                f"\n[单线程顺序处理完成] "
                 f"耗时: {t_parallel_done - t_start:.2f}s, "
                 f"完成任务: {len(all_results)}/{len(all_tasks)}"
             )
@@ -1290,6 +1503,11 @@ def run_realtime_detection(
             # ====================================================
             # 分类整理结果
             # ====================================================
+
+            print(
+                f"[Multi-target OCR batch done] elapsed={t_parallel_done - t_start:.2f}s, "
+                f"finished={len(all_results)}/{len(all_tasks)}"
+            )
 
             bottle_results = [r for r in all_results if r.get('type') == 'bottle']
             bag_results = [r for r in all_results if r.get('type') == 'bag']
@@ -1309,11 +1527,40 @@ def run_realtime_detection(
             final_medicines = []
 
             for r in bottle_results:
+                index = int(r.get('index', 0)) + 1
+                candidates = r.get('candidates') or []
+                print(f"  药瓶 {index} OCR: {r.get('ocr_text', '')}")
+                print(f"    匹配候选: {candidates[:5]}")
+                if r.get('ocr_match_weak'):
+                    source = r.get('classification_candidate_source', '')
+                    count = r.get('classification_candidate_count', 0)
+                    print(f"    OCR弱匹配: 是, SIFT候选来源={source}, 数量={count}")
+                if r.get('top_3'):
+                    print(f"    分类Top3: {r.get('top_3')}")
                 if r.get('final_medicine'):
                     final_medicines.append(r['final_medicine'])
+                    method = r.get('classification_method', 'unknown')
+                    best_template = r.get('sift_best_template') or {}
+                    sift_text = ""
+                    if method == "sift_template":
+                        sift_text = (
+                            f", SIFT good={best_template.get('good_matches', 0)}, "
+                            f"score={best_template.get('match_score', 0.0):.4f}"
+                        )
+                    zero_reason = ""
+                    if float(r.get('confidence', 0.0) or 0.0) <= 0.0:
+                        zero_reason = f", zero_reason={r.get('classification_zero_reason', r.get('decision_reason', 'unknown'))}"
                     print(
-                        f"  药瓶 {r['index'] + 1}: {r['final_medicine']} "
-                        f"(置信度: {r.get('confidence', 0.0):.4f})"
+                        f"    最终分类: {r['final_medicine']} "
+                        f"(方式: {method}, 置信度: {r.get('confidence', 0.0):.4f}"
+                        f"{sift_text}{zero_reason})"
+                    )
+                    if r.get('decision_reason'):
+                        print(f"    分类决策: {r.get('decision_reason')}")
+                else:
+                    print(
+                        f"    最终分类: 无 "
+                        f"(status={r.get('status', '')}, reason={r.get('classification_zero_reason', '')})"
                     )
 
             # 去重
@@ -1328,9 +1575,10 @@ def run_realtime_detection(
             patient_names = []
 
             for r in bag_results:
+                print(f"  药袋 {r.get('index', 0) + 1} OCR: {r.get('ocr_text', '')}")
                 if r.get('patient_name'):
                     patient_names.append(r['patient_name'])
-                    print(f"  药袋 {r['index'] + 1}: 患者 {r['patient_name']}")
+                    print(f"  药袋 {r['index'] + 1}: 患者匹配 {r['patient_name']}")
 
             # 取第一个有效患者姓名
             patient_name = patient_names[0] if patient_names else None
@@ -1345,14 +1593,32 @@ def run_realtime_detection(
             # ====================================================
 
             shuye_texts = []
+            structured_infusions = []
 
             for r in shuye_results:
+                structured_item = {
+                    "index": r.get("index"),
+                    "liquid": r.get("liquid"),
+                    "concentration": r.get("concentration"),
+                    "volume": r.get("volume"),
+                    "raw_text": r.get("raw_text", ""),
+                    "status": r.get("status", ""),
+                }
+                structured_infusions.append(structured_item)
+                print(f"  输液袋 {r.get('index', 0) + 1} OCR: {r.get('ocr_text', '')}")
+                print(
+                    f"  输液袋 {r.get('index', 0) + 1}: "
+                    f"液体={structured_item['liquid']}, "
+                    f"浓度={structured_item['concentration']}, "
+                    f"容量={structured_item['volume']}, "
+                    f"状态={structured_item['status']}"
+                )
                 if r.get('ocr_text'):
                     shuye_texts.append(r['ocr_text'])
-                    print(f"  输液袋 {r['index'] + 1}: {r['ocr_text']}")
 
             if shuye_texts:
                 print(f"\n💧 输液袋信息: {shuye_texts}")
+                print(f"💧 输液袋结构化信息: {structured_infusions}")
             else:
                 print("\n⚠️ 未识别到输液袋信息")
 
@@ -1360,7 +1626,7 @@ def run_realtime_detection(
             # 数据库比对
             # ====================================================
 
-            if patient_name and final_medicines and drug_matcher:
+            if patient_name and final_medicines and drug_matcher and hasattr(drug_matcher, "check_patient_batch_medicines"):
                 try:
                     validation = drug_matcher.check_patient_batch_medicines(
                         patient_name=patient_name,
@@ -1394,14 +1660,36 @@ def run_realtime_detection(
                     traceback.print_exc()
 
             else:
-                print("\n⚠️ 无法进行数据库比对：缺少患者姓名或药品信息")
+                print("\n⚠️ 跳过数据库比对：缺少患者姓名/药品信息，或当前匹配器不支持数据库校验")
 
             print(
                 f"\n⏱ 总耗时: {time.time() - t_start:.2f}s "
                 f"(多线程处理: {t_parallel_done - t_start:.2f}s)"
             )
 
+            background_payload = {
+                "timing_sec": {
+                    key: round(float(value), 6)
+                    for key, value in batch_timing.items()
+                },
+                "structured_infusions": structured_infusions,
+                "counts": {
+                    "bottle": len(cropped_bottles),
+                    "bag": len(cropped_bags),
+                    "shuye": len(cropped_shuyes),
+                    "total": len(all_tasks),
+                },
+            }
+
+            if keep_payload:
+                background_payload["results"] = all_results
+
             # 释放大对象
+            del all_tasks
+            del best_frame
+            del detections
+            del snapshot_frames
+            del snapshot_predictions
             del cropped_bottles
             del cropped_bags
             del cropped_shuyes
@@ -1410,6 +1698,7 @@ def run_realtime_detection(
             del bag_results
             del shuye_results
             gc.collect()
+            return background_payload
 
         except Exception as e:
             print(f"❌ 后台处理异常: {e}")
@@ -1424,6 +1713,47 @@ def run_realtime_detection(
     # 主循环
     # ============================================================
 
+    if single_image_path:
+        import json
+
+        single_total_start = time.time()
+        frame = cv2.imread(single_image_path)
+        if frame is None:
+            raise FileNotFoundError(single_image_path)
+
+        if crop_region:
+            frame = crop_image_by_coordinates(np.array([frame]), crop_region)[0]
+
+        detect_start = time.time()
+        result_frames, predictions = processor.process_frames_batch(
+            [frame],
+            output_type=output_types[current_type_idx]
+        )
+        detect_elapsed = time.time() - detect_start
+        detection_timing = {
+            "detect_batch": detect_elapsed,
+            "detect_runtime_excluding_model_init": detect_elapsed,
+            "frames": 1,
+            "fps": 1 / max(detect_elapsed, 0.001),
+        }
+        detection_timing_window.add(detection_timing)
+
+        payload = process_batch_in_background([[frame]], [predictions], keep_payload=True)
+        result = {
+            "image": single_image_path,
+            "detection_timing_sec": {
+                key: round(float(value), 6)
+                for key, value in detection_timing.items()
+            },
+            "background": payload,
+            "runtime_sec_excluding_model_init": round(time.time() - single_total_start, 6),
+        }
+        if single_image_output_json:
+            with open(single_image_output_json, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+        print(f"[Realtime Single Image] result saved: {single_image_output_json}")
+        return result
+
     try:
         while video_stream.running:
             frames = video_stream.get_batch(batch_frames)
@@ -1431,17 +1761,16 @@ def run_realtime_detection(
             if not frames:
                 continue
 
+
             # ====================================================
             # 可选 ROI 裁剪
             # ====================================================
 
             if crop_region:
-                frames = list(
-                    crop_image_by_coordinates(
-                        np.array(frames),
-                        crop_region
-                    )
-                )
+                frames = [
+                    crop_image_by_coordinates(frame, crop_region)
+                    for frame in frames
+                ]
 
             # ====================================================
             # YOLO 推理
@@ -1455,6 +1784,13 @@ def run_realtime_detection(
             )
 
             process_time = time.time() - process_start
+            if verbose_runtime:
+                detection_timing_window.add({
+                    "detect_batch": process_time,
+                    "detect_runtime_excluding_model_init": process_time,
+                    "frames": len(frames),
+                    "fps": len(frames) / max(process_time, 0.001),
+                })
 
             # 缓存最近批次
             n_batch_frames.append(frames)
@@ -1471,24 +1807,20 @@ def run_realtime_detection(
                     is_processing.set()
                     processing_done.clear()
 
-                    # 快照，避免后台线程和主线程共享 deque
-                    snapshot_frames = [
-                        list(batch)
-                        for batch in n_batch_frames
-                    ]
-
-                    snapshot_preds = [
-                        list(batch)
-                        for batch in n_batch_predictions
-                    ]
+                    # 快照当前批次，避免多批 4K 帧在主线程和后台线程重复滞留
+                    snapshot_frames = [frames]
+                    snapshot_preds = [predictions]
 
                     bg_thread = threading.Thread(
                         target=process_batch_in_background,
                         args=(snapshot_frames, snapshot_preds),
-                        daemon=True
+                        daemon=False
                     )
 
                     bg_thread.start()
+                    n_batch_frames.clear()
+                    n_batch_predictions.clear()
+                    gc.collect()
 
                     print("\n⏰ 定时触发 → 后台线程已启动")
 
@@ -1496,6 +1828,8 @@ def run_realtime_detection(
 
                 else:
                     print("\n⏰ 上一轮仍在处理，跳过")
+                    n_batch_frames.clear()
+                    n_batch_predictions.clear()
                     last_trigger_time = current_time
 
             # ====================================================
@@ -1506,6 +1840,10 @@ def run_realtime_detection(
             fps_counter.append(batch_fps)
 
             current_fps = np.mean(list(fps_counter))
+            if verbose_runtime and frame_count > 0 and frame_count % 30 == 0:
+                detect_summary = _fmt_timing_summary(detection_timing_window.summary())
+                if detect_summary:
+                    print(f"[Detection Timing last {len(detection_timing_window.items)}] {detect_summary}")
 
             # ====================================================
             # 显示与保存
@@ -1547,17 +1885,18 @@ def run_realtime_detection(
                     2
                 )
 
-                cv2.imshow(
-                    'YOLO Realtime Detection',
-                    display_frame
-                )
+                if not headless:
+                    cv2.imshow(
+                        'YOLO Realtime Detection',
+                        display_frame
+                    )
 
                 frame_count += 1
 
             if max_frames and frame_count >= max_frames:
                 break
 
-            key = cv2.waitKey(1) & 0xFF
+            key = 255 if headless else (cv2.waitKey(1) & 0xFF)
 
             if key == ord('q'):
                 break
@@ -1584,18 +1923,25 @@ def run_realtime_detection(
         # ========================================================
 
         if not processing_done.is_set():
-            print("⏳ 等待后台处理完成，最多 20 秒...")
+            print("⏳ 等待后台处理完成，最多 120 秒...")
 
-            processing_done.wait(timeout=20)
+            processing_done.wait(timeout=120)
 
             if not processing_done.is_set():
-                print("⚠️ 后台线程超时，强制退出")
+                print("⚠️ 后台线程仍未结束，将继续等待识别线程池安全退出")
+
+        if bg_thread is not None and bg_thread.is_alive():
+            print("⏳ join 后台处理线程...")
+            bg_thread.join(timeout=120)
+            if bg_thread.is_alive():
+                print("⚠️ 后台处理线程仍未结束")
 
         video_stream.stop()
 
         if video_writer:
             video_writer.release()
 
-        cv2.destroyAllWindows()
+        if not headless:
+            cv2.destroyAllWindows()
 
         print(f"✅ 完成！总帧数: {frame_count}")

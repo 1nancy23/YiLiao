@@ -1,0 +1,20 @@
+{
+  "image": "Test.png",
+  "elapsed_sec": 0.38334226608276367,
+  "roi": [
+    100,
+    100,
+    386,
+    236
+  ],
+  "detections": [],
+  "bottles": [],
+  "bags": [],
+  "summary": {
+    "detection_count": 0,
+    "bottle_count": 0,
+    "bag_count": 0,
+    "medicines": [],
+    "patients": []
+  }
+}

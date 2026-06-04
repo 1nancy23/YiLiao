@@ -1,0 +1,249 @@
+{
+  "image": "005.png",
+  "detection_timing_sec": {
+    "detect_batch": 0.133785,
+    "detect_runtime_excluding_model_init": 0.133785,
+    "frames": 1.0,
+    "fps": 7.474692
+  },
+  "background": {
+    "timing_sec": {
+      "background_total": 5.748949,
+      "select_sharpest": 1e-06,
+      "crop": 0.002014,
+      "prepare_and_recognition": 5.746923,
+      "parallel_tasks": 5.748949,
+      "runtime_excluding_model_init": 5.748949,
+      "target_count": 9.0,
+      "bottle_count": 6.0,
+      "bag_count": 1.0,
+      "shuye_count": 2.0,
+      "bottle_ocr": 16.474099,
+      "bottle_ocr_angle_cls": 0.364402,
+      "bottle_ocr_paddle_ocr": 16.109227,
+      "bottle_ocr_total": 16.473718,
+      "bottle_match": 0.007072,
+      "bottle_classify": 0.867514,
+      "bottle_total": 15.540401,
+      "bag_ocr": 3.506188,
+      "bag_ocr_angle_cls": 0.061706,
+      "bag_ocr_paddle_ocr": 3.444419,
+      "bag_ocr_total": 3.50613,
+      "bag_match": 0.000608,
+      "bag_total": 3.506824
+    },
+    "results": [
+      {
+        "type": "bottle",
+        "index": 3,
+        "ocr_text": null,
+        "candidates": null,
+        "final_medicine": null,
+        "confidence": null,
+        "status": "OCR无结果",
+        "timing_sec": {
+          "ocr": 1.8086435794830322,
+          "ocr_angle_cls": 0.05968880653381348,
+          "ocr_paddle_ocr": 1.7489039897918701,
+          "ocr_total": 1.808603048324585
+        }
+      },
+      {
+        "type": "shuye",
+        "index": 0,
+        "ocr_text": null,
+        "status": "OCR异常: 未检测到完整的 xx%",
+        "timing_sec": {}
+      },
+      {
+        "type": "bottle",
+        "index": 0,
+        "ocr_text": "注射用头孢曲松聯邦制与",
+        "candidates": [
+          "注射用头孢曲松钠",
+          "注射用头孢他啶",
+          "注射用头孢西丁钠",
+          "注射用炎琥宁",
+          "灭菌注射用水"
+        ],
+        "final_medicine": "灭菌注射用水",
+        "confidence": 0.05454545454545454,
+        "status": "完成",
+        "timing_sec": {
+          "ocr": 2.300311,
+          "ocr_angle_cls": 0.060376,
+          "ocr_paddle_ocr": 2.239833,
+          "ocr_total": 2.300226,
+          "match": 0.001914,
+          "classify": 0.151776,
+          "total": 2.454084
+        }
+      },
+      {
+        "type": "bottle",
+        "index": 5,
+        "ocr_text": "异甘草酸产品服号天蜻美",
+        "candidates": [
+          "异甘草酸镁注射液"
+        ],
+        "final_medicine": "异甘草酸镁注射液",
+        "confidence": 0.044585987261146494,
+        "status": "完成",
+        "timing_sec": {
+          "ocr": 2.573861,
+          "ocr_angle_cls": 0.057922,
+          "ocr_paddle_ocr": 2.515862,
+          "ocr_total": 2.573796,
+          "match": 0.001327,
+          "classify": 0.084382,
+          "total": 2.65969
+        }
+      },
+      {
+        "type": "bottle",
+        "index": 4,
+        "ocr_text": "川炎琥宁年月检尔筑沙资制药有限公",
+        "candidates": [
+          "注射用炎琥宁"
+        ],
+        "final_medicine": "注射用炎琥宁",
+        "confidence": 0.036585365853658534,
+        "status": "完成",
+        "timing_sec": {
+          "ocr": 2.979311,
+          "ocr_angle_cls": 0.060552,
+          "ocr_paddle_ocr": 2.918676,
+          "ocr_total": 2.979246,
+          "match": 0.0011,
+          "classify": 0.077009,
+          "total": 3.05748
+        }
+      },
+      {
+        "type": "bag",
+        "index": 0,
+        "ocr_text": "范启衡可托力床",
+        "patient_name": [],
+        "status": "完成",
+        "timing_sec": {
+          "ocr": 3.506188,
+          "ocr_angle_cls": 0.061706,
+          "ocr_paddle_ocr": 3.444419,
+          "ocr_total": 3.50613,
+          "match": 0.000608,
+          "total": 3.506824
+        }
+      },
+      {
+        "type": "bottle",
+        "index": 1,
+        "ocr_text": "晨鸟氨酸户品微号同",
+        "candidates": [
+          "人免疫球蛋白",
+          "多索茶碱注射液",
+          "异甘草酸镁注射液",
+          "注射用人干扰素a2a",
+          "注射用人干扰素a2b",
+          "注射用哌拉西林钠他唑巴坦钠",
+          "注射用多种维生素",
+          "注射用头孢他啶",
+          "注射用头孢哌酮钠舒巴坦钠",
+          "注射用头孢哌酮钠舒巴坦钠（2：1）",
+          "注射用头孢曲松钠",
+          "注射用头孢西丁钠",
+          "注射用更昔洛韦",
+          "注射用氢溴酸高乌甲素",
+          "注射用水溶性维生素",
+          "注射用泮托拉唑钠",
+          "注射用炎琥宁",
+          "注射用盐酸万古霉素",
+          "注射用硫普罗宁",
+          "注射用美罗培南",
+          "注射用艾司奥拉美拉唑钠",
+          "注射用谷胱甘肽",
+          "注射用门冬氨酸鸟氨酸",
+          "灭菌注射用水",
+          "破伤风人免疫球蛋白",
+          "维生素C注射液",
+          "葡萄糖注射液",
+          "重组人血小板生成素注射液",
+          "银杏叶提取物注射液"
+        ],
+        "final_medicine": "灭菌注射用水",
+        "confidence": 0.03825136612021858,
+        "status": "完成",
+        "timing_sec": {
+          "ocr": 3.171422,
+          "ocr_angle_cls": 0.06368,
+          "ocr_paddle_ocr": 3.10766,
+          "ocr_total": 3.17136,
+          "match": 0.001147,
+          "classify": 0.402369,
+          "total": 3.574993
+        }
+      },
+      {
+        "type": "bottle",
+        "index": 2,
+        "ocr_text": "注产品号线期",
+        "candidates": [
+          "人免疫球蛋白",
+          "多索茶碱注射液",
+          "异甘草酸镁注射液",
+          "注射用人干扰素a2a",
+          "注射用人干扰素a2b",
+          "注射用哌拉西林钠他唑巴坦钠",
+          "注射用多种维生素",
+          "注射用头孢他啶",
+          "注射用头孢哌酮钠舒巴坦钠",
+          "注射用头孢哌酮钠舒巴坦钠（2：1）",
+          "注射用头孢曲松钠",
+          "注射用头孢西丁钠",
+          "注射用更昔洛韦",
+          "注射用氢溴酸高乌甲素",
+          "注射用水溶性维生素",
+          "注射用泮托拉唑钠",
+          "注射用炎琥宁",
+          "注射用盐酸万古霉素",
+          "注射用硫普罗宁",
+          "注射用美罗培南",
+          "注射用艾司奥拉美拉唑钠",
+          "注射用谷胱甘肽",
+          "注射用门冬氨酸鸟氨酸",
+          "灭菌注射用水",
+          "破伤风人免疫球蛋白",
+          "维生素C注射液",
+          "葡萄糖注射液",
+          "重组人血小板生成素注射液",
+          "银杏叶提取物注射液"
+        ],
+        "final_medicine": "注射用盐酸万古霉素",
+        "confidence": 0.0392156862745098,
+        "status": "完成",
+        "timing_sec": {
+          "ocr": 3.64055,
+          "ocr_angle_cls": 0.062183,
+          "ocr_paddle_ocr": 3.578292,
+          "ocr_total": 3.640487,
+          "match": 0.001584,
+          "classify": 0.151978,
+          "total": 3.794154
+        }
+      },
+      {
+        "type": "shuye",
+        "index": 1,
+        "ocr_text": null,
+        "status": "OCR异常: 未检测到完整的 xxml",
+        "timing_sec": {}
+      }
+    ],
+    "counts": {
+      "bottle": 6,
+      "bag": 1,
+      "shuye": 2,
+      "total": 9
+    }
+  },
+  "runtime_sec_excluding_model_init": 6.130091
+}

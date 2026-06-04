@@ -1,4 +1,4 @@
-import cv2
+﻿import cv2
 import numpy as np
 from PIL import Image
 import os
@@ -7,7 +7,53 @@ import pickle
 import pymysql
 import time
 from rknnlite.api import RKNNLite
+from src.identification.rknn_runtime_lock import get_rknn_lock
+
+
+def _runtime_logs_enabled():
+    return os.environ.get("YILIAO_RUNTIME_LOGS", "0").lower() in ("1", "true", "yes", "on")
+
+
+def _runtime_log(*args, **kwargs):
+    if _runtime_logs_enabled():
+        print(*args, **kwargs)
+
+
 label_list = [0, 90, 180, 270]
+CLS_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
+CLS_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
+
+
+def _default_cls_model_path():
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    bs32_path = os.path.join(root, "model_cls_bs32.rknn")
+    if os.path.exists(bs32_path):
+        return bs32_path
+    return os.path.abspath(
+        os.path.join(root, "model_cls.rknn")
+    )
+
+
+def _default_feature_cache_path():
+    return os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "single_image_feature_cache.pkl")
+    )
+
+
+def _batch_size_from_path(path, default=1):
+    name = os.path.basename(str(path)).lower()
+    marker = "bs"
+    pos = name.find(marker)
+    if pos < 0:
+        return default
+    pos += len(marker)
+    digits = []
+    while pos < len(name) and name[pos].isdigit():
+        digits.append(name[pos])
+        pos += 1
+    return int("".join(digits)) if digits else default
+
+
 def reverse_rotate_with_label(img, pred):
     angle = label_list[int( pred )]
 
@@ -24,6 +70,30 @@ def reverse_rotate_with_label(img, pred):
         return cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
     else:
         raise ValueError(f"不支持的角度: {reverse_angle}")
+def preprocess_cls_image(image, layout="NCHW"):
+    if layout.upper() != "NCHW":
+        return cv2.resize(image, (224, 224))
+
+    height, width = image.shape[:2]
+    if height <= 0 or width <= 0:
+        resized = np.zeros((224, 224, 3), dtype=np.uint8)
+    else:
+        scale = 256.0 / float(min(height, width))
+        resized_w = max(224, int(round(width * scale)))
+        resized_h = max(224, int(round(height * scale)))
+        resized = cv2.resize(image, (resized_w, resized_h), interpolation=cv2.INTER_LINEAR)
+
+    y1 = max(0, (resized.shape[0] - 224) // 2)
+    x1 = max(0, (resized.shape[1] - 224) // 2)
+    cropped = resized[y1:y1 + 224, x1:x1 + 224]
+    if cropped.shape[0] != 224 or cropped.shape[1] != 224:
+        cropped = cv2.resize(cropped, (224, 224), interpolation=cv2.INTER_LINEAR)
+
+    rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    normalized = (rgb - CLS_MEAN) / CLS_STD
+    return np.transpose(normalized, (2, 0, 1)).astype(np.float32)
+
+
 class PharmaceuticalBottleClassifier:
     """
     药瓶分类器，支持从MySQL数据库存储和加载特征。
@@ -49,22 +119,36 @@ class PharmaceuticalBottleClassifier:
         )
         FLANN_INDEX_KDTREE = 1
         self.cls_model = RKNNLite()
-        self.cls_model.load_rknn("/home/forlinx/Models/AnotherYiliao/shibie/YiLiaoShiBie/model_cls.rknn")
-        CLS = self.cls_model.init_runtime(core_mask=RKNNLite.NPU_CORE_2)
+        self.cls_model_path = os.environ.get("YILIAO_CLS_MODEL", _default_cls_model_path())
+        self.cls_batch_size = int(os.environ.get(
+            "YILIAO_CLS_BATCH_SIZE",
+            32 if "bs32" in os.path.basename(self.cls_model_path).lower() else 1,
+        ))
+        self.cls_batch_size = max(
+            1,
+            int(self.cls_batch_size),
+            _batch_size_from_path(self.cls_model_path, default=1),
+        )
+        self.cls_input_layout = "NHWC"
+        self.cls_model.load_rknn(self.cls_model_path)
+        self.cls_core = RKNNLite.NPU_CORE_2
+        self.cls_lock = get_rknn_lock(self.cls_core, secondary_domain=True)
+        CLS = self.cls_model.init_runtime(core_mask=self.cls_core)
         index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=3)
         search_params = dict(checks=20)
         self.flann = cv2.FlannBasedMatcher(index_params, search_params)
         # self.matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
         self.matcher = cv2.BFMatcher()
         # cv2.NORM_HAMMING, crossCheck=False
-        self._init_db_table()
 
         # ========== 核心优化：初始化时一次性加载全部特征到内存 ==========
         self._templates_cache = {}   # {medicine_name: [{'desc_sift': np.array}, ...]}
         self._deep_avg_cache = {}    # {medicine_name: np.array or None}
+        if self.conn is not None:
+            self._init_db_table()
         self._load_all_features()
         
-        print(f"[初始化完成] 已加载 {len(self._templates_cache)} 种药品特征到内存")
+        _runtime_log(f"[初始化完成] 已加载 {len(self._templates_cache)} 种药品特征到内存")
 
     # ---------- 私有辅助方法 ----------
     def _preprocess_image(self, image):
@@ -79,30 +163,189 @@ class PharmaceuticalBottleClassifier:
         return self.sift.detectAndCompute(image, None)
 
     def _extract_features_from_image(self, image):
-        print("image",image.shape)
+        _runtime_log("image",image.shape)
         kp, desc = self._extract_sift_features(image)
         return kp[:320], desc[:320]
 
     def _match_sift_features(self, desc1, desc2):
-        # print("desc1",desc1.shape)
-        # print("desc2",desc2.shape)
-        
+        desc1 = self._valid_sift_desc(desc1)
+        desc2 = self._valid_sift_desc(desc2)
         if desc1 is None or desc2 is None:
             return 0, 0.0
         try:
             matches = self.matcher.knnMatch(desc1, desc2, k=2)
             good = 0
+            quality = 0.0
             for item in matches:
                 if len(item) < 2:
                     continue
                 m, n = item
-                if m.distance < 0.7 * n.distance:
+                if m.distance < 0.72 * n.distance:
                     good += 1
-            denom = max(1, min(len(desc1), len(desc2)))
-            score = good / denom
+                    quality += 1.0 - (m.distance / max(n.distance, 1e-6))
+            reverse_matches = self.matcher.knnMatch(desc2, desc1, k=2)
+            reverse_good = 0
+            for item in reverse_matches:
+                if len(item) < 2:
+                    continue
+                m, n = item
+                if m.distance < 0.72 * n.distance:
+                    reverse_good += 1
+            stable_good = min(good, reverse_good)
+            avg_quality = quality / max(1, good)
+            denom = max(1.0, float(np.sqrt(len(desc1) * len(desc2))))
+            score = (stable_good / denom) * (0.75 + 0.25 * avg_quality)
             return good, score
         except Exception:
             return 0, 0.0
+
+    def _valid_sift_desc(self, desc):
+        if desc is None:
+            return None
+        desc = np.asarray(desc, dtype=np.float32)
+        if desc.ndim != 2 or desc.shape[1] != 128 or desc.shape[0] < 2:
+            return None
+        return desc
+
+    def _build_candidate_descriptors(self, templates_dict):
+        train_descs = []
+        train_meta = []
+        for name, templates in templates_dict.items():
+            for template_index, template in enumerate(templates):
+                desc = self._valid_sift_desc(template.get("desc_sift"))
+                if desc is None:
+                    continue
+                train_meta.append({
+                    "medicine_name": name,
+                    "template_index": template_index,
+                    "desc_count": int(desc.shape[0]),
+                })
+                train_descs.append(desc)
+        return train_descs, train_meta
+
+    def _competitive_sift_scores(self, templates_dict, desc_query, ratio_thresh=0.72):
+        desc_query = self._valid_sift_desc(desc_query)
+        if desc_query is None:
+            return {}, {}, None, 0
+
+        train_descs, train_meta = self._build_candidate_descriptors(templates_dict)
+        if not train_descs:
+            return {}, {}, None, 0
+
+        matcher = cv2.BFMatcher(cv2.NORM_L2)
+        matcher.add(train_descs)
+        matcher.train()
+
+        template_stats = {}
+        medicine_stats = {
+            name: {"good": 0, "score_sum": 0.0, "templates": []}
+            for name in templates_dict.keys()
+        }
+        total_good = 0
+
+        try:
+            matches = matcher.knnMatch(desc_query, k=2)
+        except Exception:
+            return {}, {}, None, 0
+
+        for item in matches:
+            if len(item) < 2:
+                continue
+            m, n = item
+            if m.imgIdx < 0 or m.imgIdx >= len(train_meta):
+                continue
+            if m.distance >= ratio_thresh * n.distance:
+                continue
+
+            meta = train_meta[m.imgIdx]
+            key = (meta["medicine_name"], meta["template_index"])
+            quality = 1.0 - (m.distance / max(n.distance, 1e-6))
+            stat = template_stats.setdefault(key, {
+                "medicine_name": meta["medicine_name"],
+                "template_index": meta["template_index"],
+                "good_matches": 0,
+                "quality_sum": 0.0,
+                "desc_template_len": meta["desc_count"],
+                "desc_query_len": int(desc_query.shape[0]),
+            })
+            stat["good_matches"] += 1
+            stat["quality_sum"] += quality
+            medicine_stats[meta["medicine_name"]]["good"] += 1
+            total_good += 1
+
+        if total_good == 0:
+            return {}, {}, None, 0
+
+        template_scores = {}
+        for key, stat in template_stats.items():
+            avg_quality = stat["quality_sum"] / max(1, stat["good_matches"])
+            denom = max(
+                1.0,
+                float(np.sqrt(stat["desc_template_len"] * stat["desc_query_len"]))
+            )
+            score = (stat["good_matches"] / denom) * (0.75 + 0.25 * avg_quality)
+            scored = {
+                "medicine_name": stat["medicine_name"],
+                "template_index": stat["template_index"],
+                "good_matches": int(stat["good_matches"]),
+                "match_score": float(score),
+                "quality": float(avg_quality),
+                "desc_template_len": int(stat["desc_template_len"]),
+                "desc_query_len": int(stat["desc_query_len"]),
+            }
+            template_scores[key] = scored
+            medicine_stats[stat["medicine_name"]]["score_sum"] += score
+            medicine_stats[stat["medicine_name"]]["templates"].append(scored)
+
+        medicine_scores = {}
+        details = {}
+        for name, stat in medicine_stats.items():
+            templates = sorted(
+                stat["templates"],
+                key=lambda item: item["match_score"],
+                reverse=True,
+            )
+            if not templates:
+                medicine_scores[name] = 0.0
+                details[name] = {
+                    "max_sift_score": 0,
+                    "sift_confidence": 0.0,
+                    "best_template": {
+                        "good_matches": 0,
+                        "match_score": 0.0,
+                        "desc_template_len": 0,
+                        "desc_query_len": int(desc_query.shape[0]),
+                    },
+                    "template_scores": [],
+                    "total_good_matches": 0,
+                }
+                continue
+
+            best_template = templates[0]
+            top2_sum = sum(item["match_score"] for item in templates[:2])
+            aggregate = stat["score_sum"] / max(1, min(6, len(templates_dict.get(name, []))))
+            vote_share = stat["good"] / max(1, total_good)
+            score = (
+                0.68 * best_template["match_score"] +
+                0.20 * top2_sum +
+                0.07 * aggregate +
+                0.05 * vote_share
+            )
+            medicine_scores[name] = float(score)
+            details[name] = {
+                "max_sift_score": int(best_template["good_matches"]),
+                "sift_confidence": float(score),
+                "best_template": best_template,
+                "template_scores": templates[:6],
+                "total_good_matches": int(stat["good"]),
+            }
+
+        best_template = max(
+            template_scores.values(),
+            key=lambda item: item["match_score"],
+            default=None,
+        )
+        return medicine_scores, details, best_template, total_good
 
     def _init_db_table(self):
         with self.conn.cursor() as cursor:
@@ -124,6 +367,21 @@ class PharmaceuticalBottleClassifier:
     # ========== 核心优化：一次性加载全部特征 ==========
     def _load_all_features(self):
         """从数据库一次性加载全部药品特征到内存"""
+        cache_path = os.environ.get("YILIAO_FEATURE_CACHE", _default_feature_cache_path())
+        if cache_path and os.path.exists(cache_path):
+            try:
+                with open(cache_path, "rb") as f:
+                    cache = pickle.load(f)
+                self._templates_cache = cache.get("templates", {})
+                self._deep_avg_cache = cache.get("deep_avg", {})
+                _runtime_log(f"[特征缓存] 已从 {cache_path} 加载 {len(self._templates_cache)} 种药品特征")
+                return
+            except Exception as e:
+                _runtime_log(f"[特征缓存] 读取失败，回退到数据库: {e}")
+
+        if self.conn is None:
+            raise ValueError("db_conn is required when feature cache is missing or invalid")
+
         query = '''
             SELECT medicine_name, sift1, sift2, sift3, sift4, sift5, sift6, deep_avg
             FROM drugs
@@ -170,10 +428,25 @@ class PharmaceuticalBottleClassifier:
             else:
                 self._deep_avg_cache[name] = None
 
+        if cache_path:
+            try:
+                with open(cache_path, "wb") as f:
+                    pickle.dump(
+                        {
+                            "templates": self._templates_cache,
+                            "deep_avg": self._deep_avg_cache,
+                        },
+                        f,
+                        protocol=pickle.HIGHEST_PROTOCOL,
+                    )
+                _runtime_log(f"[特征缓存] 已写入 {cache_path}")
+            except Exception as e:
+                _runtime_log(f"[特征缓存] 写入失败: {e}")
+
     def reload_features(self):
         """公共接口：手动刷新内存缓存（数据库有外部变更时调用）"""
         self._load_all_features()
-        print(f"[缓存刷新] 已重新加载 {len(self._templates_cache)} 种药品特征")
+        _runtime_log(f"[缓存刷新] 已重新加载 {len(self._templates_cache)} 种药品特征")
 
     # ---------- 公共接口：特征录入 ----------
     def save_features_to_db(self, folder_path, medicine_name=None):
@@ -230,7 +503,7 @@ class PharmaceuticalBottleClassifier:
             if os.path.isdir(sub_path):
                 self.save_features_to_db(sub_path, medicine_name=item)
 
-        print(f"[批量录入完成] 当前缓存共 {len(self._templates_cache)} 种药品")
+        _runtime_log(f"[批量录入完成] 当前缓存共 {len(self._templates_cache)} 种药品")
 
     def _update_single_cache(self, medicine_name, sift_blob_list):
         """录入单个药品后，直接更新内存缓存（避免全量重载）"""
@@ -245,8 +518,102 @@ class PharmaceuticalBottleClassifier:
         self._templates_cache[medicine_name] = sift_templates
         self._deep_avg_cache[medicine_name] = None
 
+    def _classify_already_rotated(self, medicine_names, image):
+        log_timing = _runtime_logs_enabled()
+        start_time = time.time() if log_timing else 0.0
+        medicine_names = list(dict.fromkeys(medicine_names))
+        templates_dict = {}
+        missing = []
+        for name in medicine_names:
+            if name in self._templates_cache and self._templates_cache[name]:
+                templates_dict[name] = self._templates_cache[name]
+            else:
+                missing.append(name)
+
+        if missing:
+            _runtime_log(f"[warning] medicines missing in feature cache: {missing}")
+
+        if not templates_dict:
+            raise ValueError("no cached features found for candidate medicines")
+
+        start_time2 = time.time() if log_timing else 0.0
+        _, desc_query = self._extract_sift_features(image)
+        if log_timing:
+            _runtime_log(f"[feature extract time] {time.time() - start_time2:.4f} s")
+
+        scores, details, best_global_template, total_good = self._competitive_sift_scores(
+            templates_dict,
+            desc_query,
+            ratio_thresh=0.72,
+        )
+
+        if not scores:
+            scores = {}
+            details = {}
+            for name, templates in templates_dict.items():
+                template_scores = []
+                for template_index, template in enumerate(templates):
+                    good_matches, match_score = self._match_sift_features(
+                        template["desc_sift"],
+                        desc_query,
+                    )
+                    template_scores.append({
+                        "medicine_name": name,
+                        "template_index": template_index,
+                        "good_matches": int(good_matches),
+                        "match_score": float(match_score),
+                        "desc_template_len": 0 if template["desc_sift"] is None else len(template["desc_sift"]),
+                        "desc_query_len": 0 if desc_query is None else len(desc_query),
+                    })
+
+                best_template = max(
+                    template_scores,
+                    key=lambda item: item["match_score"],
+                    default={
+                        "medicine_name": name,
+                        "template_index": None,
+                        "good_matches": 0,
+                        "match_score": 0.0,
+                        "desc_template_len": 0,
+                        "desc_query_len": 0,
+                    },
+                )
+                scores[name] = float(best_template["match_score"])
+                details[name] = {
+                    "max_sift_score": int(best_template["good_matches"]),
+                    "sift_confidence": float(best_template["match_score"]),
+                    "best_template": best_template,
+                    "template_scores": sorted(
+                        template_scores,
+                        key=lambda item: item["match_score"],
+                        reverse=True,
+                    )[:6],
+                    "total_good_matches": int(best_template["good_matches"]),
+                }
+            best_global_template = None
+            total_good = 0
+
+        for rank, name in enumerate(medicine_names):
+            if name in scores:
+                scores[name] += 0.002 / (rank + 1)
+
+        sorted_items = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        if log_timing:
+            _runtime_log(f"[classify time] {time.time() - start_time:.4f} s")
+        return {
+            "predicted_category": sorted_items[0][0],
+            "confidence": sorted_items[0][1],
+            "all_scores": dict(sorted_items),
+            "details": details,
+            "top_3": sorted_items[:3],
+            "best_template": best_global_template,
+            "total_good_matches": int(total_good),
+            "cls_skipped": True,
+            "cls_pred": None,
+        }
+
     # ---------- 公共接口：分类（零数据库查询） ----------
-    def classify(self, medicine_names, image):
+    def classify(self, medicine_names, image, image_already_rotated=False):
         """
         对单张图片进行分类，仅考虑指定的药品名称列表。
         直接从内存缓存读取特征，不再查询数据库。
@@ -255,7 +622,12 @@ class PharmaceuticalBottleClassifier:
         :param image: OpenCV图像（BGR格式）
         :return: 字典，包含预测类别、置信度、所有得分等
         """
-        start_time = time.time()
+        if image_already_rotated:
+            return self._classify_already_rotated(medicine_names, image)
+
+        log_timing = _runtime_logs_enabled()
+        start_time = time.time() if log_timing else 0.0
+        medicine_names = list(dict.fromkeys(medicine_names))
         # ========== 直接从内存缓存过滤，无DB查询 ==========
         templates_dict = {}
         missing = []
@@ -266,71 +638,106 @@ class PharmaceuticalBottleClassifier:
                 missing.append(name)
 
         if missing:
-            print(f"[警告] 以下药品未在缓存中找到: {missing}")
+            _runtime_log(f"[警告] 以下药品未在缓存中找到: {missing}")
 
         if not templates_dict:
             raise ValueError("未找到任何指定药品的特征，无法分类")
-        start_time2 = time.time()
+        start_time2 = time.time() if log_timing else 0.0
         
-        input_nchw = cv2.resize(image, (224, 224))
-        batch_data = np.stack([input_nchw]*1, axis=0)
-        outputs = self.cls_model.inference(inputs=[batch_data])
-        outputs = outputs[0]
+        input_nchw = preprocess_cls_image(image, self.cls_input_layout)
+        batch_size = max(1, int(self.cls_batch_size))
+        batch_data = np.zeros((batch_size,) + input_nchw.shape, dtype=input_nchw.dtype)
+        batch_data[0] = input_nchw
+        with self.cls_lock:
+            outputs = self.cls_model.inference(inputs=[batch_data])
+        outputs = np.asarray(outputs[0])
+        while outputs.ndim > 2 and outputs.shape[0] == 1:
+            outputs = outputs[0]
         pred_indices = np.argmax(outputs, axis=1)  # 形状 (20,)
         pred = pred_indices[0]
-        print("药瓶旋转")
+        if outputs.ndim == 1:
+            pred = int(np.argmax(outputs))
+        elif outputs.ndim == 2 and outputs.shape[0] == len(label_list) and outputs.shape[1] >= 1:
+            pred = int(np.argmax(outputs[:, 0]))
+        else:
+            pred = int(np.argmax(outputs[0]))
+        _runtime_log("药瓶旋转")
         image=reverse_rotate_with_label(image, pred)
         
         
         _, desc_query = self._extract_sift_features(image)
-        end_time2 = time.time()
-        print(f"[特征提取耗时] {end_time2 - start_time2:.4f} 秒")
-        scores = {}
-        details = {}
-        
-        for name, templates in templates_dict.items():
-            template_scores = []
-            for t in templates:
-                good_matches, match_score = self._match_sift_features(
-                    t['desc_sift'],
-                    desc_query
+        if log_timing:
+            _runtime_log(f"[特征提取耗时] {time.time() - start_time2:.4f} 秒")
+
+        scores, details, best_global_template, total_good = self._competitive_sift_scores(
+            templates_dict,
+            desc_query,
+            ratio_thresh=0.72,
+        )
+
+        if not scores:
+            scores = {}
+            details = {}
+            for name, templates in templates_dict.items():
+                template_scores = []
+                for template_index, t in enumerate(templates):
+                    good_matches, match_score = self._match_sift_features(
+                        t['desc_sift'],
+                        desc_query
+                    )
+                    template_scores.append({
+                        'medicine_name': name,
+                        'template_index': template_index,
+                        'good_matches': int(good_matches),
+                        'match_score': float(match_score),
+                        'desc_template_len': 0 if t['desc_sift'] is None else len(t['desc_sift']),
+                        'desc_query_len': 0 if desc_query is None else len(desc_query),
+                    })
+
+                best_template = max(
+                    template_scores,
+                    key=lambda item: item['match_score'],
+                    default={
+                        'medicine_name': name,
+                        'template_index': None,
+                        'good_matches': 0,
+                        'match_score': 0.0,
+                        'desc_template_len': 0,
+                        'desc_query_len': 0,
+                    }
                 )
-                template_scores.append({
-                    'good_matches': good_matches,
-                    'match_score': match_score,
-                    'desc_template_len': 0 if t['desc_sift'] is None else len(t['desc_sift']),
-                    'desc_query_len': 0 if desc_query is None else len(desc_query),
-                })
-
-            best_template = max(
-                template_scores,
-                key=lambda item: item['match_score'],
-                default={
-                    'good_matches': 0,
-                    'match_score': 0.0,
-                    'desc_template_len': 0,
-                    'desc_query_len': 0,
+                scores[name] = float(best_template['match_score'])
+                details[name] = {
+                    'max_sift_score': int(best_template['good_matches']),
+                    'sift_confidence': float(best_template['match_score']),
+                    'best_template': best_template,
+                    'template_scores': sorted(
+                        template_scores,
+                        key=lambda item: item["match_score"],
+                        reverse=True,
+                    )[:6],
+                    'total_good_matches': int(best_template['good_matches']),
                 }
-            )
-            max_sift = best_template['good_matches']
-            sift_conf = best_template['match_score']
+            best_global_template = None
+            total_good = 0
 
-            final = sift_conf
-            scores[name] = final
-            details[name] = {
-                'max_sift_score': max_sift,
-                'sift_confidence': sift_conf,
-                'best_template': best_template,
-            }
+        # OCR 候选顺序已经包含文本语义信息。SIFT 分数非常接近或整体偏弱时，
+        # 给靠前候选一个极小先验，避免低置信模板偶然匹配压过明显 OCR 语义。
+        for rank, name in enumerate(medicine_names):
+            if name in scores:
+                scores[name] += 0.002 / (rank + 1)
 
         sorted_items = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        print(f"[分类耗时] {time.time() - start_time:.4f} 秒")
+        if log_timing:
+            _runtime_log(f"[分类耗时] {time.time() - start_time:.4f} 秒")
         return {
             'predicted_category': sorted_items[0][0],
             'confidence': sorted_items[0][1],
             'all_scores': dict(sorted_items),
             'details': details,
             'top_3': sorted_items[:3],
+            'best_template': best_global_template,
+            'total_good_matches': int(total_good),
         }
 
     def get_cached_names(self):
@@ -353,7 +760,7 @@ if __name__ == "__main__":
     classifier = PharmaceuticalBottleClassifier(db_conn=conn, device='cuda')
 
     # 查看已缓存的药品
-    print(f"已缓存药品: {classifier.get_cached_names()}")
+    _runtime_log(f"已缓存药品: {classifier.get_cached_names()}")
 
     # 批量录入（录入后自动更新缓存）
     # classifier.save_batch_features_to_db(os.path.abspath("./feat_data"))
@@ -381,7 +788,7 @@ if __name__ == "__main__":
         feat_result = classifier.classify(candidate_names, img)
         best_match = feat_result['predicted_category']
         confidence = feat_result['confidence']
-        print(f"  特征匹配最佳: {best_match} (置信度: {confidence:.4f})")
+        _runtime_log(f"  特征匹配最佳: {best_match} (置信度: {confidence:.4f})")
 
     conn.close()
 

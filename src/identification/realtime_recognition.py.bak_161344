@@ -1,0 +1,499 @@
+import contextlib
+import io
+import os
+import re
+import time
+import traceback
+
+from fuzzywuzzy import fuzz, process
+
+
+class CachedNameMatcher:
+    def __init__(self, drug_names, patient_names):
+        self.drug_names = [name for name in drug_names if name]
+        self.patient_names = [name for name in patient_names if name]
+        if "赵二虎" not in self.patient_names:
+            self.patient_names.append("赵二虎")
+        self._match_cache = {}
+        self._weak_drug_terms = {
+            "注射", "射用", "用", "液", "钠", "酸", "素", "水", "片", "胶囊",
+            "批号", "生产", "有效", "规格",
+        }
+        self._latin_drug_hints = {
+            "ceft": ["头孢"],
+            "ceftriax": ["头孢", "曲松"],
+            "triax": ["曲松"],
+            "sulbact": ["舒巴坦"],
+            "ornith": ["鸟氨酸"],
+            "glycyrrh": ["甘草酸"],
+        }
+
+    @staticmethod
+    def _clean_match_text(text):
+        text = str(text or "").replace(" ", "")
+        return re.sub(r"[^\w\u4e00-\u9fff]+", "", text)
+
+    def _extract_strong_query_terms(self, query):
+        clean = self._clean_match_text(query)
+        chinese_runs = re.findall(r"[\u4e00-\u9fff]{2,}", clean)
+        terms = set()
+        lower = clean.lower()
+        for key, hints in self._latin_drug_hints.items():
+            if key in lower:
+                terms.update(hints)
+        for run in chinese_runs:
+            max_n = min(5, len(run))
+            for n in range(max_n, 1, -1):
+                for i in range(0, len(run) - n + 1):
+                    term = run[i:i + n]
+                    if term in self._weak_drug_terms:
+                        continue
+                    if n == 2 and any(weak in term for weak in ("注", "用", "液")):
+                        continue
+                    terms.add(term)
+        return sorted(terms, key=lambda value: (-len(value), value))
+
+    def _rank_drug_matches(self, query, names, threshold, limit):
+        clean_query = self._clean_match_text(query)
+        terms = self._extract_strong_query_terms(clean_query)
+        ranked = []
+        for name in names:
+            clean_name = self._clean_match_text(name)
+            if not clean_name:
+                continue
+
+            partial = fuzz.partial_ratio(clean_query, clean_name)
+            ratio = fuzz.ratio(clean_query, clean_name)
+            token = fuzz.token_set_ratio(clean_query, clean_name)
+            term_hits = [term for term in terms if term in clean_name]
+            term_score = sum(len(term) * 12 for term in term_hits)
+            fuzzy_score = max(partial, ratio, token)
+            score = fuzzy_score + term_score
+
+            if term_hits:
+                ranked.append((name, score, len("".join(term_hits)), partial))
+            elif fuzzy_score >= threshold:
+                ranked.append((name, score, 0, partial))
+
+        ranked.sort(key=lambda item: (item[1], item[2], item[3]), reverse=True)
+        if limit is not None:
+            ranked = ranked[:limit]
+        return [item[0] for item in ranked]
+
+    def match(self, query, match_type="bottle", threshold=80, limit=None):
+        if not query or len(query.strip()) < 1:
+            return []
+
+        cache_key = (query, match_type, int(threshold), limit)
+        cached = self._match_cache.get(cache_key)
+        if cached is not None:
+            return list(cached)
+
+        if match_type == "bottle":
+            names = self.drug_names
+        elif match_type == "bag":
+            names = self.patient_names
+        else:
+            raise ValueError(f"invalid match_type: {match_type}")
+
+        if not names:
+            return []
+
+        if match_type == "bottle":
+            result = self._rank_drug_matches(query, names, threshold, limit)
+            if result:
+                self._match_cache[cache_key] = tuple(result)
+                return result
+
+        matches = process.extractBests(
+            query,
+            names,
+            scorer=fuzz.partial_ratio,
+            score_cutoff=threshold,
+            limit=limit,
+        )
+
+        if match_type == "bottle" and not matches:
+            result = list(names)
+        else:
+            result = [match[0] for match in matches]
+
+        self._match_cache[cache_key] = tuple(result)
+        return result
+
+
+def _round_timing(timing):
+    return {key: round(float(value), 6) for key, value in timing.items()}
+
+
+def _summarize_classifier_result(cls_result):
+    if not isinstance(cls_result, dict):
+        return {}
+
+    predicted = cls_result.get("predicted_category")
+    details = cls_result.get("details") or {}
+    predicted_detail = details.get(predicted, {}) if predicted else {}
+    best_template = predicted_detail.get("best_template", {}) or {}
+
+    summary = {
+        "classification_method": "sift_template",
+        "sift_predicted_category": predicted,
+        "sift_confidence": float(cls_result.get("confidence", 0.0) or 0.0),
+        "sift_top_3": cls_result.get("top_3", []),
+        "sift_all_scores": cls_result.get("all_scores", {}),
+        "sift_max_good_matches": int(predicted_detail.get("max_sift_score", 0) or 0),
+        "sift_best_template": {
+            "good_matches": int(best_template.get("good_matches", 0) or 0),
+            "match_score": float(best_template.get("match_score", 0.0) or 0.0),
+            "desc_template_len": int(best_template.get("desc_template_len", 0) or 0),
+            "desc_query_len": int(best_template.get("desc_query_len", 0) or 0),
+        },
+    }
+    return summary
+
+
+def _select_final_bottle_medicine(candidates, cls_result, min_good_matches=4, min_match_score=0.009):
+    if not candidates:
+        return None, "ocr_candidate", 0.0, "no_candidates"
+    if not isinstance(cls_result, dict):
+        return candidates[0], "ocr_candidate", 0.0, "no_sift_result"
+
+    predicted = cls_result.get("predicted_category")
+    details = cls_result.get("details") or {}
+    predicted_detail = details.get(predicted, {}) if predicted else {}
+    best_template = predicted_detail.get("best_template", {}) or {}
+    good_matches = int(best_template.get("good_matches", 0) or 0)
+    match_score = float(best_template.get("match_score", 0.0) or 0.0)
+    confidence = float(cls_result.get("confidence", 0.0) or 0.0)
+
+    if not predicted:
+        return candidates[0], "ocr_candidate", confidence, "empty_sift_prediction"
+    if predicted == candidates[0]:
+        return predicted, "sift_template", confidence, "sift_agrees_with_ocr_top1"
+    if predicted in candidates[:3] and good_matches >= min_good_matches and match_score >= min_match_score:
+        return predicted, "sift_template", confidence, "strong_sift_in_ocr_top3"
+    if good_matches >= max(6, min_good_matches + 2) and match_score >= max(0.014, min_match_score * 1.5):
+        return predicted, "sift_template", confidence, "very_strong_sift_override"
+
+    return candidates[0], "ocr_candidate_sift_rejected", confidence, (
+        f"weak_sift_override_rejected: predicted={predicted}, "
+        f"good={good_matches}, score={match_score:.4f}, ocr_top1={candidates[0]}"
+    )
+
+
+def _call_ocr(recognizer, method_name, image, quiet=False):
+    start = time.perf_counter()
+    method = getattr(recognizer, method_name)
+    if quiet:
+        with contextlib.redirect_stdout(io.StringIO()):
+            text = method(image)
+    else:
+        text = method(image)
+    timing = dict(getattr(recognizer, "last_timing", {}) or {})
+    timing["recognizer_call"] = time.perf_counter() - start
+    return text, timing
+
+
+def _looks_like_non_bottle_text(text):
+    text = str(text or "").strip()
+    if not text:
+        return False
+
+    compact = re.sub(r"\s+", "", text)
+    bag_terms = (
+        "床", "病区", "住院", "患者", "姓名", "年龄", "性别", "赵二虎",
+        "输液", "静脉", "滴注", "滴速", "护士", "医嘱", "处方", "二维码",
+    )
+    if any(term in compact for term in bag_terms):
+        return True
+
+    if re.search(r"\d{1,3}床", compact):
+        return True
+
+    digits = re.findall(r"\d", compact)
+    chinese = re.findall(r"[\u4e00-\u9fff]", compact)
+    if len(digits) >= 8 and len(digits) >= len(chinese):
+        return True
+
+    return False
+
+
+def process_bottle(
+    idx,
+    image,
+    recognizer,
+    drug_matcher,
+    classifier=None,
+    classify_enabled=True,
+    classifier_lock=None,
+    classifier_thread_safe=True,
+    quiet=False,
+    precomputed_ocr=None,
+):
+    item = {
+        "type": "bottle",
+        "index": idx,
+        "ocr_text": "",
+        "candidates": [],
+        "final_medicine": None,
+        "confidence": 0.0,
+        "status": "started",
+        "timing_sec": {},
+    }
+    total_start = time.perf_counter()
+    try:
+        if recognizer is None:
+            item["status"] = "OCR识别器未提供"
+            return item
+
+        if precomputed_ocr is not None:
+            text = precomputed_ocr.get("text", "")
+            ocr_timing = dict(precomputed_ocr.get("timing", {}) or {})
+            classify_image = precomputed_ocr.get("classify_image", image)
+            classify_image_already_rotated = bool(
+                precomputed_ocr.get("classify_image_already_rotated", False)
+            )
+        else:
+            text, ocr_timing = _call_ocr(recognizer, "recognize", image, quiet)
+            classify_image = image
+            classify_image_already_rotated = False
+        item["timing_sec"].update({f"ocr_{key}": value for key, value in ocr_timing.items()})
+        item["ocr_text"] = text or ""
+        if not text:
+            item["status"] = "ocr_empty"
+            item["classification_zero_reason"] = "ocr_empty"
+            item["timing_sec"]["total"] = time.perf_counter() - total_start
+            item["timing_sec"] = _round_timing(item["timing_sec"])
+            return item
+
+        if _looks_like_non_bottle_text(text):
+            item["ocr_warning"] = "ocr_text_looks_like_bag_or_patient_label"
+
+        if drug_matcher is None:
+            item["status"] = "药品匹配器未提供"
+            item["timing_sec"]["total"] = time.perf_counter() - total_start
+            item["timing_sec"] = _round_timing(item["timing_sec"])
+            return item
+
+        t = time.perf_counter()
+        candidates = drug_matcher.match(text, match_type="bottle", threshold=50, limit=10)
+        item["timing_sec"]["match"] = time.perf_counter() - t
+        item["candidates"] = candidates
+        if not candidates:
+            item["status"] = "no_candidates"
+            item["classification_zero_reason"] = "no_candidates"
+            item["timing_sec"]["total"] = time.perf_counter() - total_start
+            item["timing_sec"] = _round_timing(item["timing_sec"])
+            return item
+
+        if classify_enabled and classifier is not None:
+            t = time.perf_counter()
+            if classifier_thread_safe or classifier_lock is None:
+                cls_result = classifier.classify(
+                    candidates,
+                    classify_image,
+                    image_already_rotated=classify_image_already_rotated,
+                )
+            else:
+                with classifier_lock:
+                    cls_result = classifier.classify(
+                        candidates,
+                        classify_image,
+                        image_already_rotated=classify_image_already_rotated,
+                    )
+            item["timing_sec"]["classify"] = time.perf_counter() - t
+            item.update(_summarize_classifier_result(cls_result))
+            final_medicine, method, confidence, decision_reason = _select_final_bottle_medicine(
+                candidates,
+                cls_result,
+            )
+            item["classification_method"] = method
+            item["final_medicine"] = final_medicine
+            item["confidence"] = confidence
+            item["decision_reason"] = decision_reason
+            item["top_3"] = cls_result.get("top_3", [])
+            if confidence <= 0.0:
+                item["classification_zero_reason"] = decision_reason
+        else:
+            item["classification_method"] = "ocr_candidate"
+            item["final_medicine"] = candidates[0]
+            item["classification_zero_reason"] = "classifier_disabled_or_missing"
+
+        item["status"] = "done"
+        item["timing_sec"]["total"] = time.perf_counter() - total_start
+        item["timing_sec"] = _round_timing(item["timing_sec"])
+        return item
+    except Exception as exc:
+        item["status"] = f"error: {exc}"
+        item["traceback"] = traceback.format_exc()
+        item["timing_sec"]["total"] = time.perf_counter() - total_start
+        item["timing_sec"] = _round_timing(item["timing_sec"])
+        return item
+
+
+def process_bag(
+    idx,
+    image,
+    recognizer,
+    drug_matcher,
+    quiet=False,
+    simulate_patient_name="",
+    precomputed_ocr=None,
+):
+    item = {
+        "type": "bag",
+        "index": idx,
+        "ocr_text": "",
+        "patient_name": None,
+        "status": "started",
+        "timing_sec": {},
+    }
+    total_start = time.perf_counter()
+    try:
+        if recognizer is None:
+            item["status"] = "OCR识别器未提供"
+            return item
+
+        if precomputed_ocr is not None:
+            text = precomputed_ocr.get("text", "")
+            ocr_timing = dict(precomputed_ocr.get("timing", {}) or {})
+        else:
+            text, ocr_timing = _call_ocr(recognizer, "recognize_yaodai", image, quiet)
+        item["timing_sec"].update({f"ocr_{key}": value for key, value in ocr_timing.items()})
+        if simulate_patient_name:
+            item["raw_ocr_text"] = text or ""
+            text = simulate_patient_name
+            item["simulated_patient_name"] = simulate_patient_name
+        item["ocr_text"] = text or ""
+        if not text:
+            item["status"] = "ocr_empty"
+            item["timing_sec"]["total"] = time.perf_counter() - total_start
+            item["timing_sec"] = _round_timing(item["timing_sec"])
+            return item
+
+        t = time.perf_counter()
+        patient = [simulate_patient_name] if simulate_patient_name else drug_matcher.match(
+            text,
+            match_type="bag",
+            threshold=50,
+            limit=10,
+        )
+        item["timing_sec"]["match"] = time.perf_counter() - t
+        item["patient_name"] = patient
+        item["status"] = "done"
+        item["timing_sec"]["total"] = time.perf_counter() - total_start
+        item["timing_sec"] = _round_timing(item["timing_sec"])
+        return item
+    except Exception as exc:
+        item["status"] = f"error: {exc}"
+        item["traceback"] = traceback.format_exc()
+        item["timing_sec"]["total"] = time.perf_counter() - total_start
+        item["timing_sec"] = _round_timing(item["timing_sec"])
+        return item
+
+
+def process_infusion(idx, image, recognizer, quiet=False, result_type="shuye", precomputed_ocr=None):
+    item = {
+        "type": result_type,
+        "index": idx,
+        "ocr_text": "",
+        "liquid": None,
+        "concentration": None,
+        "volume": None,
+        "raw_text": "",
+        "status": "started",
+        "timing_sec": {},
+    }
+    total_start = time.perf_counter()
+    try:
+        if recognizer is None:
+            item["status"] = "OCR识别器未提供"
+            return item
+
+        if precomputed_ocr is not None:
+            text = precomputed_ocr.get("text", "")
+            ocr_timing = dict(precomputed_ocr.get("timing", {}) or {})
+        else:
+            text, ocr_timing = _call_ocr(recognizer, "recognize_shuyedai", image, quiet)
+        item["timing_sec"].update({f"ocr_{key}": value for key, value in ocr_timing.items()})
+        if isinstance(text, dict):
+            item["ocr_text"] = text
+            item["liquid"] = text.get("liquid")
+            item["concentration"] = text.get("concentration")
+            item["volume"] = text.get("volume")
+            item["raw_text"] = text.get("raw_text", "")
+            item["status"] = text.get("status", "done")
+        else:
+            item["ocr_text"] = text or ""
+            item["raw_text"] = text or ""
+            item["status"] = "done" if text else "ocr_empty"
+        item["timing_sec"]["total"] = time.perf_counter() - total_start
+        item["timing_sec"] = _round_timing(item["timing_sec"])
+        return item
+    except Exception as exc:
+        item["status"] = f"error: {exc}"
+        item["traceback"] = traceback.format_exc()
+        item["timing_sec"]["total"] = time.perf_counter() - total_start
+        item["timing_sec"] = _round_timing(item["timing_sec"])
+        return item
+
+
+def process_task_group(
+    task_group,
+    recognizer,
+    drug_matcher,
+    classifier=None,
+    classify_enabled=True,
+    classifier_lock=None,
+    classifier_thread_safe=True,
+    quiet=False,
+    simulate_patient_name="",
+):
+    batch_ocr = {}
+    use_mixed_batch = os.environ.get("YILIAO_MIXED_OCR_BATCH", "1").lower() in ("1", "true", "yes")
+    if use_mixed_batch and recognizer is not None and hasattr(recognizer, "recognize_task_batch"):
+        try:
+            if quiet:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    batch_ocr = recognizer.recognize_task_batch(task_group) or {}
+            else:
+                batch_ocr = recognizer.recognize_task_batch(task_group) or {}
+        except Exception:
+            batch_ocr = {}
+
+    results = []
+    for task_type, idx, crop in task_group:
+        precomputed = batch_ocr.get((task_type, idx))
+        if task_type == "bottle":
+            results.append(process_bottle(
+                idx,
+                crop,
+                recognizer,
+                drug_matcher,
+                classifier,
+                classify_enabled,
+                classifier_lock,
+                classifier_thread_safe,
+                quiet,
+                precomputed,
+            ))
+        elif task_type == "bag":
+            results.append(process_bag(
+                idx,
+                crop,
+                recognizer,
+                drug_matcher,
+                quiet,
+                simulate_patient_name,
+                precomputed,
+            ))
+        else:
+            results.append(process_infusion(
+                idx,
+                crop,
+                recognizer,
+                quiet,
+                result_type="shuye",
+                precomputed_ocr=precomputed,
+            ))
+    return results

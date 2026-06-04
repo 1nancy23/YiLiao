@@ -1,8 +1,20 @@
+﻿import os
+import re
+
 import pymysql
 from fuzzywuzzy import fuzz, process
 from typing import List, Optional, Dict, Any
 
 from src.identification.OCRRecognizer import OCRRecognizer
+
+
+def _runtime_logs_enabled():
+    return os.environ.get("YILIAO_RUNTIME_LOGS", "0").lower() in ("1", "true", "yes", "on")
+
+
+def _runtime_log(*args, **kwargs):
+    if _runtime_logs_enabled():
+        print(*args, **kwargs)
 
 
 class DrugMatcher:
@@ -33,11 +45,148 @@ class DrugMatcher:
         self._drug_names = None
         # 患者名称缓存
         self._patient_names = None
+        self._match_cache = {}
+        self._weak_drug_terms = {
+            "注射", "射用", "用", "液", "钠", "酸", "素", "水", "片", "胶囊",
+            "批号", "生产", "有效", "规格",
+        }
+        self._drug_alias_rules = [
+            ("头孢他啶", ("头孢他啶", "头孢他", "孢他啶", "他啶", "ceftazidime", "ftazid")),
+        ]
+        self._latin_drug_hints = {
+            "ceft": ["头孢"],
+            "ceftriax": ["头孢", "曲松"],
+            "triax": ["曲松"],
+            "sulbact": ["舒巴坦"],
+            "ornith": ["鸟氨酸"],
+            "glycyrrh": ["甘草酸"],
+        }
+
+        self._drug_keyword_aliases = {
+            "人免疫球蛋白": ("人免疫", "免疫球", "球蛋白", "免疫蛋白"),
+            "破伤风人免疫球蛋白": ("破伤风", "人免疫", "免疫球", "球蛋白"),
+            "注射用人干扰素a2a": ("干扰素a2a", "干扰素2a", "人干扰素", "a2a"),
+            "注射用人干扰素a2b": ("干扰素a2b", "干扰素2b", "人干扰素", "a2b"),
+            "注射用哌拉西林钠他唑巴坦钠": ("哌拉西林", "他唑巴坦", "哌拉", "他唑"),
+            "注射用头孢他啶": ("头孢他啶", "头孢他", "他啶"),
+            "注射用头孢哌酮钠舒巴坦钠（2：1）": ("头孢哌酮", "舒巴坦", "哌酮", "2:1", "2：1"),
+            "注射用头孢唑啉钠": ("头孢唑啉", "唑啉"),
+            "注射用头孢曲松钠": ("头孢曲松", "曲松"),
+            "注射用泮托拉唑钠": ("泮托拉唑", "泮托"),
+            "注射用炎琥宁": ("炎琥宁", "琥宁"),
+            "注射用艾司奥拉美拉唑钠": ("艾司奥拉美拉唑", "艾司奥", "奥拉美拉唑", "奥美拉唑"),
+            "重组人血小板生成素注射液": ("血小板生成素", "重组人血小板", "血小板", "生成素"),
+        }
 
         if cache_drugs:
             self._load_drug_names()
             self._load_patient_names()
             self._patient_names.append("赵二虎")
+
+    @staticmethod
+    def _clean_match_text(text: str) -> str:
+        text = str(text or "").replace(" ", "")
+        return re.sub(r"[^\w\u4e00-\u9fff]+", "", text)
+
+    @staticmethod
+    def _looks_like_non_drug_query(text: str) -> bool:
+        compact = re.sub(r"\s+", "", str(text or ""))
+        if not compact:
+            return False
+        non_drug_terms = (
+            "床", "病区", "住院", "患者", "姓名", "年龄", "性别", "赵二虎",
+            "输液", "静脉", "滴注", "滴速", "护士", "医嘱", "处方", "二维码",
+        )
+        if any(term in compact for term in non_drug_terms):
+            return True
+        if re.search(r"\d{1,3}床", compact):
+            return True
+        digits = re.findall(r"\d", compact)
+        chinese = re.findall(r"[\u4e00-\u9fff]", compact)
+        return len(digits) >= 8 and len(digits) >= len(chinese)
+
+    @staticmethod
+    def _normalize_ocr_for_drugs(text: str) -> str:
+        text = str(text or "").replace(" ", "")
+        replacements = {
+            "曲鬆": "曲松", "曲忪": "曲松", "他定": "他啶", "他咤": "他啶",
+            "唑林": "唑啉", "坐啉": "唑啉", "泮托拉坐": "泮托拉唑",
+            "奥美拉坐": "奥美拉唑", "拉美拉坐": "拉美拉唑",
+            "干扰索": "干扰素", "免疫求": "免疫球", "蛋自": "蛋白",
+            "破仿风": "破伤风", "血小版": "血小板",
+            "头抱": "头孢", "头胞": "头孢", "舒巴坦纳": "舒巴坦钠",
+            "哌铜": "哌酮", "曲松纳": "曲松钠", "他啶纳": "他啶钠",
+            "A2A": "a2a", "A2B": "a2b", "２": "2", "１": "1",
+            "（": "(", "）": ")", "：": ":",
+        }
+        for src, dst in replacements.items():
+            text = text.replace(src, dst)
+        return text.lower()
+
+    def _extract_strong_query_terms(self, query: str) -> List[str]:
+        clean = self._clean_match_text(query)
+        chinese_runs = re.findall(r"[\u4e00-\u9fff]{2,}", clean)
+        terms = set()
+        lower = clean.lower()
+        for key, hints in self._latin_drug_hints.items():
+            if key in lower:
+                terms.update(hints)
+        for run in chinese_runs:
+            max_n = min(5, len(run))
+            for n in range(max_n, 1, -1):
+                for i in range(0, len(run) - n + 1):
+                    term = run[i:i + n]
+                    if term in self._weak_drug_terms:
+                        continue
+                    if n == 2 and any(weak in term for weak in ("注", "用", "液")):
+                        continue
+                    terms.add(term)
+        return sorted(terms, key=lambda value: (-len(value), value))
+
+    def _rank_drug_matches(self, query: str, name_list: List[str], threshold: int,
+                           limit: Optional[int]) -> List[str]:
+        clean_query = self._clean_match_text(self._normalize_ocr_for_drugs(query))
+        terms = self._extract_strong_query_terms(clean_query)
+        ranked = []
+        for name in name_list:
+            clean_name = self._clean_match_text(self._normalize_ocr_for_drugs(name))
+            if not clean_name:
+                continue
+
+            partial = fuzz.partial_ratio(clean_query, clean_name)
+            ratio = fuzz.ratio(clean_query, clean_name)
+            token = fuzz.token_set_ratio(clean_query, clean_name)
+            term_hits = [term for term in terms if term in clean_name]
+            term_score = sum(len(term) * 12 for term in term_hits)
+            alias_hits = [
+                alias for alias in self._drug_keyword_aliases.get(name, ())
+                if self._clean_match_text(self._normalize_ocr_for_drugs(alias)) in clean_query
+            ]
+            alias_score = sum(max(2, len(alias)) * 16 for alias in alias_hits)
+            fuzzy_score = max(partial, ratio, token)
+            score = fuzzy_score + term_score + alias_score
+            if re.search(r"a?2a", clean_name) and re.search(r"a?2a", clean_query):
+                score += 80
+            if re.search(r"a?2b", clean_name) and re.search(r"a?2b", clean_query):
+                score += 80
+            if re.search(r"a?2a", clean_name) and re.search(r"a?2b", clean_query):
+                score -= 60
+            if re.search(r"a?2b", clean_name) and re.search(r"a?2a", clean_query):
+                score -= 60
+            lower_query = clean_query.lower()
+            for target, aliases in self._drug_alias_rules:
+                if target in clean_name and any(alias.lower() in lower_query for alias in aliases):
+                    score += 120
+
+            if term_hits or alias_hits:
+                ranked.append((name, score, len("".join(term_hits + alias_hits)), partial))
+            elif fuzzy_score >= threshold:
+                ranked.append((name, score, 0, partial))
+
+        ranked.sort(key=lambda item: (item[1], item[2], item[3]), reverse=True)
+        if limit is not None:
+            ranked = ranked[:limit]
+        return [item[0] for item in ranked]
 
     def _load_drug_names(self):
         """从数据库加载所有药品名称到内存"""
@@ -56,7 +205,7 @@ class DrugMatcher:
             raise Exception(f"数据库查询失败：{e}")
 
         self._drug_names = [name for name in drug_names if name]  # 过滤空值
-        print(f"✅ 已加载 {len(self._drug_names)} 个药品名称")
+        _runtime_log(f"✅ 已加载 {len(self._drug_names)} 个药品名称")
 
     def _load_patient_names(self):
         """从数据库加载所有患者名称到内存"""
@@ -75,8 +224,8 @@ class DrugMatcher:
             raise Exception(f"数据库查询失败：{e}")
 
         self._patient_names = [name for name in patient_names if name]  # 过滤空值
-        print(f"✅ 已加载 {len(self._patient_names)} 个患者名称")
-        print("所有患者",self._patient_names)
+        _runtime_log(f"✅ 已加载 {len(self._patient_names)} 个患者名称")
+        _runtime_log("所有患者",self._patient_names)
     def match(self, query: str, match_type: str = 'bottle',
               threshold=80, limit: Optional[int] = None) -> List[str]:
         """
@@ -91,13 +240,18 @@ class DrugMatcher:
         if not query or len(query.strip()) < 1:
             return []
 
+        cache_key = (query, match_type, int(threshold), limit)
+        cached = self._match_cache.get(cache_key)
+        if cached is not None:
+            return list(cached)
+
         # 根据匹配类型加载对应的名称列表
         if match_type == 'bottle':
             # 药品匹配
             if self._drug_names is None: 
                 self._load_drug_names()
             name_list = self._drug_names
-            print(f"🔍 药品匹配模式，查询：{query}")
+            _runtime_log(f"🔍 药品匹配模式，查询：{query}")
             ###测试全部返回
             # return self._drug_names
         elif match_type == 'bag':
@@ -105,13 +259,21 @@ class DrugMatcher:
             if self._patient_names is None:
                 self._load_patient_names()
             name_list = self._patient_names
-            print(f"🔍 患者匹配模式，查询：{query}")
+            _runtime_log(f"🔍 患者匹配模式，查询：{query}")
         else:
             raise ValueError(f"无效的 match_type: {match_type}，应为 'bottle' 或 'bag'")
 
         if not name_list:
-            print("⚠️ 名称列表为空，无法匹配，返回所有药品名称")
-            return self._drug_names
+            _runtime_log("⚠️ 名称列表为空，无法匹配，返回所有药品名称")
+            result = self._drug_names
+            self._match_cache[cache_key] = tuple(result)
+            return list(result)
+
+        if match_type == 'bottle':
+            result = self._rank_drug_matches(query, name_list, threshold, limit)
+            if result:
+                self._match_cache[cache_key] = tuple(result)
+                return result
 
         matches = process.extractBests(
             query,
@@ -122,9 +284,17 @@ class DrugMatcher:
         )
         if match_type == 'bottle':
             if not matches:
-                print("⚠️ 未找到匹配结果,返回所有药品名称")
-                return self._drug_names
-        return [match[0] for match in matches]
+                if self._looks_like_non_drug_query(query):
+                    result = []
+                    self._match_cache[cache_key] = tuple(result)
+                    return result
+                _runtime_log("⚠️ 未找到匹配结果,返回所有药品名称")
+                result = self._drug_names
+                self._match_cache[cache_key] = tuple(result)
+                return list(result)
+        result = [match[0] for match in matches]
+        self._match_cache[cache_key] = tuple(result)
+        return result
 
     def refresh_cache(self, match_type: str = 'bottle'):
         """
@@ -141,6 +311,7 @@ class DrugMatcher:
             self._load_patient_names()
         else:
             raise ValueError(f"无效的 match_type: {match_type}")
+        self._match_cache.clear()
 
     # ========== 业务流程方法 ==========
 
@@ -162,21 +333,21 @@ class DrugMatcher:
         query = ocr_recognizer.recognize(image)
 
         if not query or len(query.strip()) < 3:
-            print("⚠️ OCR 结果为空或过短，跳过匹配")
+            _runtime_log("⚠️ OCR 结果为空或过短，跳过匹配")
             return {
                 "image": image,
                 "ocr_text": "",
                 "matches": []
             }
 
-        print(f'OCR 识别结果：{query}')
+        _runtime_log(f'OCR 识别结果：{query}')
         # 药品模糊匹配（match_type='bottle'）
         matches = self.match(query, match_type='bottle', threshold=threshold, limit=limit)
         if matches:
-            print(f"匹配结果数量：{len(matches)}")
-            print(matches)
+            _runtime_log(f"匹配结果数量：{len(matches)}")
+            _runtime_log(matches)
         else:
-            print("匹配失败，请重新拍摄")
+            _runtime_log("匹配失败，请重新拍摄")
 
         return {
             "image": image,
@@ -201,21 +372,21 @@ class DrugMatcher:
         # OCR 识别
         query = ocr_recognizer.recognize(image)
         if not query or len(query.strip()) < 2:
-            print("⚠️ OCR 结果为空或过短，跳过匹配")
+            _runtime_log("⚠️ OCR 结果为空或过短，跳过匹配")
             return {
                 "image": image,
                 "ocr_text": "",
                 "matches": []
             }
 
-        print(f'OCR 识别结果：{query}')
+        _runtime_log(f'OCR 识别结果：{query}')
         # 患者模糊匹配（match_type='bag'）
         matches = self.match(query, match_type='bag', threshold=threshold, limit=limit)
         if matches:
-            print(f"匹配结果数量：{len(matches)}")
-            print(matches)
+            _runtime_log(f"匹配结果数量：{len(matches)}")
+            _runtime_log(matches)
         else:
-            print("匹配失败，请重新拍摄")
+            _runtime_log("匹配失败，请重新拍摄")
 
         return {
             "image": image,
@@ -237,7 +408,7 @@ class DrugMatcher:
         total = len(image_list)
 
         for idx, img in enumerate(image_list):
-            print(f"--------- 处理第 {idx + 1}/{total} 号图像 ---------")
+            _runtime_log(f"--------- 处理第 {idx + 1}/{total} 号图像 ---------")
             result = self.recognize_single_bottle(
                 ocr_recognizer, img,
                 threshold=threshold, limit=limit
@@ -260,7 +431,7 @@ class DrugMatcher:
         total = len(image_list)
 
         for idx, img in enumerate(image_list):
-            print(f"--------- 处理第 {idx + 1}/{total} 号图像 ---------")
+            _runtime_log(f"--------- 处理第 {idx + 1}/{total} 号图像 ---------")
             result = self.recognize_single_bag(
                 ocr_recognizer, img,
                 threshold=threshold, limit=limit
@@ -287,7 +458,7 @@ class DrugMatcher:
         }
         """
         
-        print("利用“魏理想”作为测试病人")
+        _runtime_log("利用“魏理想”作为测试病人")
         patient_name = "魏理想"
         result = {
             'matched': False,
@@ -303,7 +474,7 @@ class DrugMatcher:
             cursor.execute("SELECT patient_id FROM patients WHERE name = %s", (patient_name,))
             row = cursor.fetchone()
             if not row:
-                print(f"错误：未找到名为 '{patient_name}' 的病人")
+                _runtime_log(f"错误：未找到名为 '{patient_name}' 的病人")
                 return result
 
             patient_id = row[0] if isinstance(row, (tuple, list)) else row['patient_id']
@@ -313,7 +484,7 @@ class DrugMatcher:
             cursor.execute("SELECT batch_id FROM batches WHERE batch_id = %s AND patient_id = %s",
                            (batch_id, patient_id))
             if not cursor.fetchone():
-                print(f"错误：批次 {batch_id} 不存在或不属于病人 {patient_name}")
+                _runtime_log(f"错误：批次 {batch_id} 不存在或不属于病人 {patient_name}")
                 return result
             result['batch_exists'] = True
 
@@ -362,15 +533,15 @@ if __name__ == "__main__":
     # 3. 药瓶识别（药品匹配）
     image_path = "./data/img_7.png"
     result = matcher.recognize_single_bottle(recognizer, image_path, threshold=50, limit=10)
-    print(f"【药瓶】OCR 结果：{result['ocr_text']}")
-    print(f"【药瓶】匹配结果：{result['matches']}")
-    print('='*50)
+    _runtime_log(f"【药瓶】OCR 结果：{result['ocr_text']}")
+    _runtime_log(f"【药瓶】匹配结果：{result['matches']}")
+    _runtime_log('='*50)
 
     # 4. 药袋识别（患者匹配）
     bag_image_path = "./data/bag_1773497363014.jpg"
     bag_result = matcher.recognize_single_bag(recognizer, bag_image_path, threshold=50, limit=10)
-    print(f"【药袋】OCR 结果：{bag_result['ocr_text']}")
-    print(f"【药袋】匹配结果：{bag_result['matches']}")
+    _runtime_log(f"【药袋】OCR 结果：{bag_result['ocr_text']}")
+    _runtime_log(f"【药袋】匹配结果：{bag_result['matches']}")
 
     patient_name = bag_result['matches']
     # 5. 直接使用 match 函数
@@ -392,16 +563,16 @@ if __name__ == "__main__":
     )
 
     if validation['batch_exists']:
-        print(f"数据库所需药品: {validation['actual']}")
+        _runtime_log(f"数据库所需药品: {validation['actual']}")
         if validation['matched']:
-            print("✅ 匹配正确：识别药品与所需药品完全一致")
+            _runtime_log("✅ 匹配正确：识别药品与所需药品完全一致")
         else:
-            print("❌ 匹配错误：")
+            _runtime_log("❌ 匹配错误：")
             if validation['missing']:
-                print(f"   缺少药品: {validation['missing']}")
+                _runtime_log(f"   缺少药品: {validation['missing']}")
             if validation['extra']:
-                print(f"   多余药品: {validation['extra']}")
+                _runtime_log(f"   多余药品: {validation['extra']}")
     else:
-        print(f"⚠️ 患者 {patient_name} 批次 {1} 不存在于数据库")
+        _runtime_log(f"⚠️ 患者 {patient_name} 批次 {1} 不存在于数据库")
 
     conn.close()
