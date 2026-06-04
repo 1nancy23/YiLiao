@@ -751,6 +751,31 @@ from src.utils.img_utils import ImageProcessor
 from src.identification.realtime_recognition import process_task_group
 
 
+DISPLAY_MAX_WIDTH = 1024
+DISPLAY_MAX_HEIGHT = 600
+
+
+def _resize_for_display(frame, display_scale=1.0, max_width=DISPLAY_MAX_WIDTH, max_height=DISPLAY_MAX_HEIGHT):
+    if frame is None or frame.size == 0:
+        return frame
+
+    h, w = frame.shape[:2]
+    scale = float(display_scale) if display_scale else 1.0
+    if scale <= 0:
+        scale = 1.0
+
+    target_w = max(1, int(round(w * scale)))
+    target_h = max(1, int(round(h * scale)))
+
+    fit_scale = min(1.0, float(max_width) / target_w, float(max_height) / target_h)
+    target_w = max(1, int(round(target_w * fit_scale)))
+    target_h = max(1, int(round(target_h * fit_scale)))
+
+    if target_w == w and target_h == h:
+        return frame.copy()
+    return cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+
+
 class TimingWindow:
     def __init__(self, maxlen=20):
         self.items = deque(maxlen=maxlen)
@@ -873,6 +898,12 @@ def run_realtime_detection(
         simulate_patient_name="",
         quiet_ocr=True,
         headless=None,
+        trigger_mode="auto",
+        manual_trigger_event=None,
+        stop_event=None,
+        status_callback=None,
+        result_callback=None,
+        frame_callback=None,
 ):
     import gc
     import builtins
@@ -882,6 +913,34 @@ def run_realtime_detection(
     def print(*args, **kwargs):
         if runtime_logs:
             builtins.print(*args, **kwargs)
+
+    trigger_mode = str(trigger_mode or "auto").lower()
+    if trigger_mode not in ("auto", "manual"):
+        trigger_mode = "auto"
+
+    def emit_status(**kwargs):
+        if status_callback is None:
+            return
+        try:
+            status_callback(dict(kwargs))
+        except Exception:
+            pass
+
+    def emit_result(payload):
+        if result_callback is None:
+            return
+        try:
+            result_callback(payload)
+        except Exception:
+            pass
+
+    def emit_frame(frame):
+        if frame_callback is None:
+            return
+        try:
+            frame_callback(frame)
+        except Exception:
+            pass
 
     # ============================================================
     # OCR 识别器处理
@@ -1006,6 +1065,7 @@ def run_realtime_detection(
 
     fps_counter = deque(maxlen=3)
     frame_count = 0
+    display_window_ready = False
     last_trigger_time = time.time()
 
     print("\n" + "=" * 60)
@@ -1525,10 +1585,22 @@ def run_realtime_detection(
             # ====================================================
 
             final_medicines = []
+            bottle_outputs = []
 
             for r in bottle_results:
                 index = int(r.get('index', 0)) + 1
                 candidates = r.get('candidates') or []
+                bottle_outputs.append({
+                    "index": index,
+                    "ocr_text": r.get("ocr_text", ""),
+                    "candidates": candidates[:5],
+                    "final_medicine": r.get("final_medicine"),
+                    "confidence": r.get("confidence"),
+                    "classification_method": r.get("classification_method"),
+                    "top_3": r.get("top_3") or [],
+                    "decision_reason": r.get("decision_reason", ""),
+                    "status": r.get("status", ""),
+                })
                 print(f"  药瓶 {index} OCR: {r.get('ocr_text', '')}")
                 print(f"    匹配候选: {candidates[:5]}")
                 if r.get('ocr_match_weak'):
@@ -1573,8 +1645,15 @@ def run_realtime_detection(
             # ====================================================
 
             patient_names = []
+            bag_outputs = []
 
             for r in bag_results:
+                bag_outputs.append({
+                    "index": int(r.get("index", 0)) + 1,
+                    "ocr_text": r.get("ocr_text", ""),
+                    "patient_name": r.get("patient_name"),
+                    "status": r.get("status", ""),
+                })
                 print(f"  药袋 {r.get('index', 0) + 1} OCR: {r.get('ocr_text', '')}")
                 if r.get('patient_name'):
                     patient_names.append(r['patient_name'])
@@ -1626,6 +1705,10 @@ def run_realtime_detection(
             # 数据库比对
             # ====================================================
 
+            validation_result = None
+            validation_status = "skipped"
+            validation_message = "missing patient name, medicine result, or database matcher"
+
             if patient_name and final_medicines and drug_matcher and hasattr(drug_matcher, "check_patient_batch_medicines"):
                 try:
                     validation = drug_matcher.check_patient_batch_medicines(
@@ -1633,6 +1716,13 @@ def run_realtime_detection(
                         batch_id=1,
                         expected_medicine_names=final_medicines
                     )
+                    validation_result = validation
+                    if validation.get("batch_exists"):
+                        validation_status = "matched" if validation.get("matched") else "mismatch"
+                        validation_message = "matched" if validation.get("matched") else "medicine mismatch"
+                    else:
+                        validation_status = "batch_not_found"
+                        validation_message = "patient batch not found"
 
                     print(f"\n{'=' * 60}")
                     print("【数据库匹配结果】")
@@ -1656,6 +1746,8 @@ def run_realtime_detection(
                     print(f"{'=' * 60}")
 
                 except Exception as e:
+                    validation_status = "error"
+                    validation_message = str(e)
                     print(f"数据库比对异常: {e}")
                     traceback.print_exc()
 
@@ -1672,6 +1764,16 @@ def run_realtime_detection(
                     key: round(float(value), 6)
                     for key, value in batch_timing.items()
                 },
+                "bottles": bottle_outputs,
+                "bags": bag_outputs,
+                "infusions": structured_infusions,
+                "recognized_medicines": final_medicines,
+                "patient_name": patient_name,
+                "database_match": {
+                    "status": validation_status,
+                    "message": validation_message,
+                    "validation": validation_result,
+                },
                 "structured_infusions": structured_infusions,
                 "counts": {
                     "bottle": len(cropped_bottles),
@@ -1681,8 +1783,9 @@ def run_realtime_detection(
                 },
             }
 
-            if keep_payload:
+            if keep_payload or result_callback is not None:
                 background_payload["results"] = all_results
+            emit_result(background_payload)
 
             # 释放大对象
             del all_tasks
@@ -1707,6 +1810,7 @@ def run_realtime_detection(
         finally:
             is_processing.clear()
             processing_done.set()
+            emit_status(state="running", processing=False, frame_count=frame_count)
             print("🔓 后台处理完成")
 
     # ============================================================
@@ -1755,7 +1859,7 @@ def run_realtime_detection(
         return result
 
     try:
-        while video_stream.running:
+        while video_stream.running and not (stop_event is not None and stop_event.is_set()):
             frames = video_stream.get_batch(batch_frames)
 
             if not frames:
@@ -1801,11 +1905,21 @@ def run_realtime_detection(
             # ====================================================
 
             current_time = time.time()
+            should_trigger = False
+            trigger_label = "timed"
+            if trigger_mode == "manual":
+                if manual_trigger_event is not None and manual_trigger_event.is_set():
+                    manual_trigger_event.clear()
+                    should_trigger = True
+                    trigger_label = "manual"
+            elif current_time - last_trigger_time >= trigger_interval:
+                should_trigger = True
 
-            if current_time - last_trigger_time >= trigger_interval:
+            if should_trigger:
                 if not is_processing.is_set():
                     is_processing.set()
                     processing_done.clear()
+                    emit_status(state="running", processing=True, frame_count=frame_count, trigger=trigger_label)
 
                     # 快照当前批次，避免多批 4K 帧在主线程和后台线程重复滞留
                     snapshot_frames = [frames]
@@ -1849,22 +1963,16 @@ def run_realtime_detection(
             # 显示与保存
             # ====================================================
 
+            if not headless and not display_window_ready:
+                cv2.namedWindow('YOLO Realtime Detection', cv2.WINDOW_NORMAL)
+                cv2.resizeWindow('YOLO Realtime Detection', DISPLAY_MAX_WIDTH, DISPLAY_MAX_HEIGHT)
+                display_window_ready = True
+
             for result_frame in result_frames:
                 if video_writer:
                     video_writer.write(result_frame)
 
-                if display_scale != 1.0:
-                    h, w = result_frame.shape[:2]
-
-                    display_frame = cv2.resize(
-                        result_frame,
-                        (
-                            int(w * display_scale),
-                            int(h * display_scale)
-                        )
-                    )
-                else:
-                    display_frame = result_frame.copy()
+                display_frame = _resize_for_display(result_frame, display_scale)
 
                 status = "处理中" if is_processing.is_set() else "等待"
 
@@ -1884,6 +1992,8 @@ def run_realtime_detection(
                     (0, 255, 0),
                     2
                 )
+
+                emit_frame(display_frame)
 
                 if not headless:
                     cv2.imshow(
@@ -1912,6 +2022,7 @@ def run_realtime_detection(
                     current_type_idx + 1
                 ) % len(output_types)
 
+            emit_status(state="running", processing=is_processing.is_set(), frame_count=frame_count, fps=float(current_fps))
             del frames
 
     except KeyboardInterrupt:

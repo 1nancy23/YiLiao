@@ -13,6 +13,7 @@ pip install "paddleocr==2.7.0.3"
 
 pip install "numpy==1.23.5" --force-reinstall --no-deps
 pip install pymysql fuzzywuzzy python-Levenshtein
+pip install flask
 pip install pynput
 pip install einops
 pip install timm
