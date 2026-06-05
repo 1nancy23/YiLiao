@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import argparse
 import contextlib
+import gc
 import io
 import json
 import os
@@ -29,6 +30,21 @@ def env_bool(name, default):
     return value.lower() not in ("0", "false", "no")
 
 
+def jsonable(value):
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): jsonable(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [jsonable(item) for item in value]
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            pass
+    return str(value)
+
+
 def init_db(db_config):
     kwargs = dict(
         host=db_config.get("host", "192.168.137.1"),
@@ -48,19 +64,21 @@ def init_db(db_config):
         raise
 
 
-def jsonable(value):
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, dict):
-        return {str(key): jsonable(val) for key, val in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [jsonable(item) for item in value]
-    if hasattr(value, "item"):
-        try:
-            return value.item()
-        except Exception:
-            pass
-    return str(value)
+class LocalBottleDbMatcher(DrugMatcher):
+    def __init__(self, db_conn, local_drug_names, drug_table="drugs", drug_column="medicine_name",
+                 patient_table="patients", patient_column="name"):
+        super().__init__(
+            db_conn,
+            drug_table=drug_table,
+            drug_column=drug_column,
+            patient_table=patient_table,
+            patient_column=patient_column,
+            cache_drugs=False,
+        )
+        self._drug_names = list(dict.fromkeys(name for name in local_drug_names if name))
+        if not self._drug_names:
+            raise ValueError("local bottle template drug names are empty")
+        self._load_patient_names()
 
 
 class WebRuntime:
@@ -70,6 +88,9 @@ class WebRuntime:
         self.stop_event = threading.Event()
         self.trigger_event = threading.Event()
         self.last_frame_jpeg = None
+        self.last_frame_seq = 0
+        self.last_frame_encode_at = 0.0
+        self.frame_min_interval = 1.0 / max(1.0, float(os.environ.get("YILIAO_WEB_FRAME_FPS", "12")))
         self.last_result = None
         self.status = {
             "state": "idle",
@@ -91,16 +112,29 @@ class WebRuntime:
             data["result_available"] = self.last_result is not None
             return data
 
+    def snapshot(self):
+        with self.lock:
+            status = dict(self.status)
+            status["thread_alive"] = bool(self.thread and self.thread.is_alive())
+            status["frame_available"] = self.last_frame_jpeg is not None
+            status["result_available"] = self.last_result is not None
+            return {"status": status, "result": self.last_result}
+
     def update_status(self, data):
         with self.lock:
             self.status.update(jsonable(data))
 
     def update_frame(self, frame):
+        now = time.monotonic()
+        if now - self.last_frame_encode_at < self.frame_min_interval:
+            return
         ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
         if not ok:
             return
         with self.lock:
             self.last_frame_jpeg = encoded.tobytes()
+            self.last_frame_seq += 1
+            self.last_frame_encode_at = now
 
     def update_result(self, payload):
         with self.lock:
@@ -108,9 +142,32 @@ class WebRuntime:
             self.status["last_result_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
             self.status["processing"] = False
 
+    def clear_result(self):
+        with self.lock:
+            self.last_result = None
+            self.status["last_result_at"] = None
+
+    def reset_view_state(self):
+        with self.lock:
+            if not (self.thread and self.thread.is_alive()):
+                self.last_frame_jpeg = None
+                self.status.update({
+                    "state": "idle",
+                    "processing": False,
+                    "frame_count": 0,
+                    "fps": 0.0,
+                    "last_error": None,
+                })
+            self.last_result = None
+            self.status["last_result_at"] = None
+
     def get_frame(self):
         with self.lock:
             return self.last_frame_jpeg
+
+    def get_frame_snapshot(self):
+        with self.lock:
+            return self.last_frame_seq, self.last_frame_jpeg
 
     def get_result(self):
         with self.lock:
@@ -122,10 +179,15 @@ class WebRuntime:
                 return False, "already running"
             self.stop_event.clear()
             self.trigger_event.clear()
+            self.last_result = None
+            self.last_frame_jpeg = None
             self.status.update({
                 "state": "starting",
                 "processing": False,
+                "frame_count": 0,
+                "fps": 0.0,
                 "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_result_at": None,
                 "last_error": None,
             })
             self.thread = threading.Thread(target=self._run_detection, daemon=True)
@@ -145,6 +207,8 @@ class WebRuntime:
                 return False, "detection is not running"
             if self.status.get("processing"):
                 return False, "recognition is still processing"
+            self.last_result = None
+            self.status["last_result_at"] = None
             self.status["trigger_count"] = int(self.status.get("trigger_count", 0)) + 1
             self.status["processing"] = True
         self.trigger_event.set()
@@ -152,6 +216,8 @@ class WebRuntime:
 
     def _run_detection(self):
         conn = None
+        classifier = None
+        ocr_recognizers = []
         try:
             self.update_status({"state": "loading_models", "processing": False})
             self._set_default_env()
@@ -169,19 +235,20 @@ class WebRuntime:
                 runtime_config.get("ocr_instances", 1),
             ))
 
-            conn = init_db(config.get("db_config", {}))
-            tables = config["table_config"]
             init_log_stream = io.StringIO() if quiet_ocr else None
             with contextlib.redirect_stdout(init_log_stream) if init_log_stream is not None else contextlib.nullcontext():
-                drug_matcher = DrugMatcher(
-                    conn,
-                    drug_table=tables["drug_table"],
-                    drug_column=tables["drug_column"],
-                    patient_table=tables["patient_table"],
-                    patient_column=tables["patient_column"],
-                    cache_drugs=True,
-                )
-                classifier = PharmaceuticalBottleClassifier(db_conn=conn, device="npu")
+                classifier = PharmaceuticalBottleClassifier(db_conn=None, device="npu")
+            drug_names = classifier.get_cached_names()
+            conn = init_db(config.get("db_config", {}))
+            tables = config["table_config"]
+            drug_matcher = LocalBottleDbMatcher(
+                conn,
+                drug_names,
+                drug_table=tables["drug_table"],
+                drug_column=tables["drug_column"],
+                patient_table=tables["patient_table"],
+                patient_column=tables["patient_column"],
+            )
 
             det_model_path = os.path.join(PROJECT_ROOT, "src", "identification", "Det_bs32.rknn")
             rec_model_path = os.path.join(PROJECT_ROOT, "model_ocr_0526.rknn")
@@ -243,12 +310,28 @@ class WebRuntime:
             })
             traceback.print_exc()
         finally:
+            for recognizer in ocr_recognizers:
+                release = getattr(recognizer, "release", None)
+                if callable(release):
+                    try:
+                        release()
+                    except Exception:
+                        pass
+            if classifier is not None:
+                release = getattr(classifier, "release", None)
+                if callable(release):
+                    try:
+                        release()
+                    except Exception:
+                        pass
             if conn is not None:
                 try:
                     conn.close()
                 except Exception:
                     pass
+            gc.collect()
             with self.lock:
+                self.last_frame_jpeg = None
                 if self.status.get("state") not in ("error",):
                     self.status["state"] = "stopped"
                 self.status["processing"] = False
@@ -258,6 +341,7 @@ class WebRuntime:
         os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
         os.environ.setdefault("YILIAO_MIXED_OCR_BATCH", "1")
         os.environ.setdefault("YILIAO_FEATURE_CACHE", "./single_image_feature_cache.pkl")
+        os.environ.setdefault("YILIAO_FEATURE_ROOT", os.path.join(PROJECT_ROOT, "src", "identification", "feat_data"))
         os.environ.setdefault("YILIAO_VERBOSE_RUNTIME", "1")
         os.environ.setdefault("YILIAO_RUNTIME_LOGS", "1")
         os.environ.setdefault("YILIAO_COLLECT_TIMING", "1")
@@ -296,6 +380,16 @@ PAGE = """
     .result-title { font-weight: 700; margin-bottom: 5px; color: #93c5fd; }
     .muted { color: #94a3b8; }
     .pill { display: inline-block; padding: 2px 6px; border-radius: 999px; background: #334155; margin-right: 4px; }
+    .modal-backdrop { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.62); z-index: 20; padding: 16px; }
+    .modal-backdrop.open { display: flex; }
+    .modal { width: min(760px, 96vw); max-height: 88vh; overflow: auto; background: #18202a; border: 1px solid #3b4a5c; border-radius: 6px; box-shadow: 0 18px 48px rgba(0,0,0,.45); }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #2a3441; }
+    .modal-title { font-size: 17px; font-weight: 700; }
+    .modal-body { padding: 14px; display: grid; gap: 8px; font-size: 14px; }
+    .modal-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; align-items: start; }
+    .modal-close { flex: 0 0 auto; width: 36px; height: 32px; background: #475569; }
+    .match-ok { color: #22c55e; }
+    .match-bad { color: #f87171; }
     h1 { font-size: 17px; margin: 0; }
     h2 { font-size: 15px; margin: 12px 0 8px; }
     .ok { color: #22c55e; }
@@ -341,7 +435,19 @@ PAGE = """
       </div>
     </aside>
   </main>
+  <div id="matchModal" class="modal-backdrop" onclick="closeMatchModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div class="modal-title">最终查询匹配结果</div>
+        <button class="modal-close" onclick="closeMatchModal()">X</button>
+      </div>
+      <div id="matchModalBody" class="modal-body"></div>
+    </div>
+  </div>
   <script>
+    let lastMatchPopupSignature = '';
+    let initialResultSynced = false;
+
     async function postApi(path) {
       const resp = await fetch(path, {method: 'POST'});
       const data = await resp.json();
@@ -357,7 +463,66 @@ PAGE = """
     function renderList(id, html) {
       document.getElementById(id).innerHTML = html || '<span class="muted">暂无结果</span>';
     }
-    function renderResult(payload) {
+    function infusionLine(item) {
+      const index = Number(item.index || 0) + 1;
+      return `输液袋 ${index}: 液体=${item.liquid || 'None'}, 浓度=${item.concentration || 'None'}, 容量=${item.volume || 'None'}, 状态=${item.status || ''}`;
+    }
+    function matchStatusText(status) {
+      return {
+        matched: '匹配正确',
+        mismatch: '匹配不一致',
+        batch_not_found: '病人批次不存在',
+        skipped: '跳过数据库比对',
+        error: '数据库比对异常'
+      }[status] || (status || '暂无');
+    }
+    function matchHtml(payload) {
+      const match = payload.database_match || {};
+      const validation = match.validation || {};
+      const medicines = payload.recognized_medicines || [];
+      const patientList = payload.patient_names && payload.patient_names.length ? payload.patient_names : (payload.patient_name ? [payload.patient_name] : []);
+      const infusions = payload.infusions || payload.structured_infusions || [];
+      const statusText = matchStatusText(match.status);
+      const statusClass = match.status === 'matched' ? 'match-ok' : (match.status && match.status !== 'skipped' ? 'match-bad' : 'muted');
+      return `
+        <div class="modal-row"><b>匹配状态</b><div class="${statusClass}">${esc(statusText)}</div></div>
+        <div class="modal-row"><b>患者</b><div>${esc(JSON.stringify(patientList))}</div></div>
+        <div class="modal-row"><b>识别药品</b><div>${esc(JSON.stringify(medicines))}</div></div>
+        <div class="modal-row"><b>输液袋信息</b><div>${infusions.map(item => `<div>${esc(infusionLine(item))}</div>`).join('') || '无'}</div></div>
+        <div class="modal-row"><b>数据库药品</b><div>${esc(JSON.stringify(validation.actual || []))}</div></div>
+        <div class="modal-row"><b>缺少</b><div>${esc(JSON.stringify(validation.missing || []))}</div></div>
+        <div class="modal-row"><b>多余</b><div>${esc(JSON.stringify(validation.extra || []))}</div></div>
+        <div class="modal-row"><b>说明</b><div class="muted">${esc(match.message || '')}</div></div>
+      `;
+    }
+    function maybeShowMatchModal(payload, status, allowPopup) {
+      if (!payload || !payload.database_match) return;
+      const matchStatus = payload.database_match.status || '';
+      if (!matchStatus || matchStatus === 'skipped') return;
+      const signature = `${status.last_result_at || ''}:${JSON.stringify(payload.database_match)}`;
+      if (!allowPopup) {
+        lastMatchPopupSignature = signature;
+        return;
+      }
+      if (signature === lastMatchPopupSignature) return;
+      lastMatchPopupSignature = signature;
+      document.getElementById('matchModalBody').innerHTML = matchHtml(payload);
+      document.getElementById('matchModal').classList.add('open');
+    }
+    async function clearCurrentResult() {
+      renderResult(null, {}, false);
+      lastMatchPopupSignature = '';
+      try {
+        await fetch('/api/clear_result', {method: 'POST'});
+      } catch (err) {
+      }
+    }
+    function closeMatchModal(event) {
+      if (event && event.target && event.target.id !== 'matchModal') return;
+      document.getElementById('matchModal').classList.remove('open');
+      clearCurrentResult();
+    }
+    function renderResult(payload, status, allowPopup) {
       if (!payload) {
         renderList('bottleBox', '');
         renderList('bagBox', '');
@@ -388,23 +553,14 @@ PAGE = """
       const infusions = payload.infusions || payload.structured_infusions || [];
       renderList('infusionBox', infusions.map(item => `
         <div>
-          <span class="pill">#${Number(item.index || 0) + 1}</span>
-          <b>${esc(item.liquid || '未识别液体')}</b>
-          <div>浓度：${esc(item.concentration || '')}，容量：${esc(item.volume || '')}</div>
+          <div>${esc(infusionLine(item))}</div>
           <div>OCR：${esc(item.raw_text || '')}</div>
-          <div class="muted">状态：${esc(item.status || '')}</div>
         </div>`).join('<hr>'));
 
       const match = payload.database_match || {};
       const validation = match.validation || {};
       const medicines = payload.recognized_medicines || [];
-      const statusText = {
-        matched: '匹配正确',
-        mismatch: '匹配不一致',
-        batch_not_found: '病人批次不存在',
-        skipped: '跳过数据库比对',
-        error: '数据库比对异常'
-      }[match.status] || (match.status || '暂无');
+      const statusText = matchStatusText(match.status);
       renderList('matchBox', `
         <div><b>${esc(statusText)}</b></div>
         <div>病人：${esc(payload.patient_name || '未识别')}</div>
@@ -414,9 +570,21 @@ PAGE = """
         <div>多余：${esc((validation.extra || []).join('，') || '无')}</div>
         <div class="muted">${esc(match.message || '')}</div>
       `);
+      maybeShowMatchModal(payload, status || {}, allowPopup);
     }
     async function refreshAll() {
-      const status = await (await fetch('/api/status')).json();
+      let status;
+      let result;
+      try {
+        const snapshot = await (await fetch('/api/snapshot')).json();
+        status = snapshot.status || {};
+        result = {result: snapshot.result || null};
+      } catch (err) {
+        document.getElementById('statusBox').innerHTML = '<div>状态</div><div>后端未连接</div>';
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('triggerBtn').disabled = true;
+        return;
+      }
       const rows = [
         ['状态', status.state],
         ['处理中', status.processing ? '是' : '否'],
@@ -430,11 +598,18 @@ PAGE = """
       document.getElementById('statusBox').innerHTML = rows.map(([k, v]) => `<div>${k}</div><div>${v}</div>`).join('');
       document.getElementById('startBtn').disabled = ['starting', 'loading_models', 'running'].includes(status.state);
       document.getElementById('triggerBtn').disabled = status.state !== 'running' || status.processing;
-      const result = await (await fetch('/api/result')).json();
-      renderResult(result.result);
+      renderResult(result.result, status, initialResultSynced);
+      initialResultSynced = true;
     }
-    setInterval(refreshAll, 1000);
-    refreshAll();
+    async function initPage() {
+      try {
+        await fetch('/api/reset_view', {method: 'POST'});
+      } catch (err) {
+      }
+      await refreshAll();
+      setInterval(refreshAll, 1000);
+    }
+    initPage();
   </script>
 </body>
 </html>
@@ -461,6 +636,23 @@ def result():
     return jsonify(result=runtime.get_result())
 
 
+@app.get("/api/snapshot")
+def snapshot():
+    return jsonify(runtime.snapshot())
+
+
+@app.post("/api/clear_result")
+def clear_result():
+    runtime.clear_result()
+    return jsonify(ok=True)
+
+
+@app.post("/api/reset_view")
+def reset_view():
+    runtime.reset_view_state()
+    return jsonify(ok=True)
+
+
 @app.post("/api/start")
 def start():
     ok, message = runtime.start()
@@ -482,13 +674,14 @@ def trigger():
 @app.get("/video_feed")
 def video_feed():
     def generate():
+        last_seq = -1
         while True:
-            frame = runtime.get_frame()
-            if frame is None:
+            seq, frame = runtime.get_frame_snapshot()
+            if frame is None or seq == last_seq:
                 time.sleep(0.2)
                 continue
+            last_seq = seq
             yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
-            time.sleep(0.08)
     return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 

@@ -81,7 +81,10 @@ class DrugMatcher:
         if cache_drugs:
             self._load_drug_names()
             self._load_patient_names()
-            self._patient_names.append("赵二虎")
+
+    def _ensure_connection(self):
+        if self.conn is not None and hasattr(self.conn, "ping"):
+            self.conn.ping(reconnect=True)
 
     @staticmethod
     def _clean_match_text(text: str) -> str:
@@ -192,6 +195,7 @@ class DrugMatcher:
         """从数据库加载所有药品名称到内存"""
         drug_names = []
         try:
+            self._ensure_connection()
             with self.conn.cursor() as cursor:
                 sql = f"SELECT {self.drug_column} FROM {self.drug_table}"
                 cursor.execute(sql)
@@ -211,6 +215,7 @@ class DrugMatcher:
         """从数据库加载所有患者名称到内存"""
         patient_names = []
         try:
+            self._ensure_connection()
             with self.conn.cursor() as cursor:
                 sql = f"SELECT {self.patient_column} FROM {self.patient_table}"
                 cursor.execute(sql)
@@ -458,8 +463,6 @@ class DrugMatcher:
         }
         """
         
-        _runtime_log("利用“魏理想”作为测试病人")
-        patient_name = "魏理想"
         result = {
             'matched': False,
             'actual': [],
@@ -469,6 +472,7 @@ class DrugMatcher:
             'batch_exists': False
         }
 
+        self._ensure_connection()
         with self.conn.cursor() as cursor:
             # 1. 根据病人名称查询 patient_id
             cursor.execute("SELECT patient_id FROM patients WHERE name = %s", (patient_name,))

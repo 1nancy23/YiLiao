@@ -755,6 +755,54 @@ DISPLAY_MAX_WIDTH = 1024
 DISPLAY_MAX_HEIGHT = 600
 
 
+def _first_text(value):
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            text = _first_text(item)
+            if text:
+                return text
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _unique_texts(values):
+    result = []
+    seen = set()
+    for value in values:
+        text = _first_text(value)
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
+def _resolve_latest_patient_batch_id(drug_matcher, patient_name):
+    conn = getattr(drug_matcher, "conn", None)
+    if conn is None or not patient_name:
+        return None
+    if hasattr(conn, "ping"):
+        conn.ping(reconnect=True)
+    with conn.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT p.patient_id, b.batch_id
+            FROM patients p
+            JOIN batches b ON b.patient_id = p.patient_id
+            WHERE p.name = %s
+            ORDER BY b.batch_id DESC
+            LIMIT 1
+            """,
+            (patient_name,),
+        )
+        row = cursor.fetchone()
+    if not row:
+        return None
+    return row["batch_id"] if isinstance(row, dict) else row[1]
+
+
 def _resize_for_display(frame, display_scale=1.0, max_width=DISPLAY_MAX_WIDTH, max_height=DISPLAY_MAX_HEIGHT):
     if frame is None or frame.size == 0:
         return frame
@@ -976,6 +1024,7 @@ def run_realtime_detection(
     # ============================================================
 
     video_stream = None
+    processor = None
     if not single_image_path:
         rtsp_url = (
             f"rtsp://{username}:{password}@{ip_address}:{port}"
@@ -1648,18 +1697,21 @@ def run_realtime_detection(
             bag_outputs = []
 
             for r in bag_results:
+                matched_patient = _first_text(r.get("patient_name"))
                 bag_outputs.append({
                     "index": int(r.get("index", 0)) + 1,
                     "ocr_text": r.get("ocr_text", ""),
-                    "patient_name": r.get("patient_name"),
+                    "patient_name": matched_patient,
+                    "patient_candidates": _unique_texts([r.get("patient_name")]),
                     "status": r.get("status", ""),
                 })
                 print(f"  药袋 {r.get('index', 0) + 1} OCR: {r.get('ocr_text', '')}")
-                if r.get('patient_name'):
-                    patient_names.append(r['patient_name'])
+                if matched_patient:
+                    patient_names.append(matched_patient)
                     print(f"  药袋 {r['index'] + 1}: 患者匹配 {r['patient_name']}")
 
             # 取第一个有效患者姓名
+            patient_names = _unique_texts(patient_names)
             patient_name = patient_names[0] if patient_names else None
 
             if patient_name:
@@ -1708,18 +1760,35 @@ def run_realtime_detection(
             validation_result = None
             validation_status = "skipped"
             validation_message = "missing patient name, medicine result, or database matcher"
+            validation_batch_id = None
 
             if patient_name and final_medicines and drug_matcher and hasattr(drug_matcher, "check_patient_batch_medicines"):
                 try:
-                    validation = drug_matcher.check_patient_batch_medicines(
-                        patient_name=patient_name,
-                        batch_id=1,
-                        expected_medicine_names=final_medicines
-                    )
+                    validation_batch_id = _resolve_latest_patient_batch_id(drug_matcher, patient_name)
+                    if validation_batch_id is None:
+                        validation = {
+                            "matched": False,
+                            "actual": [],
+                            "missing": [],
+                            "extra": [],
+                            "patient_id": None,
+                            "batch_exists": False,
+                        }
+                    else:
+                        validation = drug_matcher.check_patient_batch_medicines(
+                            patient_name=patient_name,
+                            batch_id=validation_batch_id,
+                            expected_medicine_names=final_medicines
+                        )
+                        validation["batch_id"] = validation_batch_id
                     validation_result = validation
                     if validation.get("batch_exists"):
                         validation_status = "matched" if validation.get("matched") else "mismatch"
-                        validation_message = "matched" if validation.get("matched") else "medicine mismatch"
+                        validation_message = (
+                            f"matched batch {validation_batch_id}"
+                            if validation.get("matched")
+                            else f"medicine mismatch in batch {validation_batch_id}"
+                        )
                     else:
                         validation_status = "batch_not_found"
                         validation_message = "patient batch not found"
@@ -1769,9 +1838,11 @@ def run_realtime_detection(
                 "infusions": structured_infusions,
                 "recognized_medicines": final_medicines,
                 "patient_name": patient_name,
+                "patient_names": patient_names,
                 "database_match": {
                     "status": validation_status,
                     "message": validation_message,
+                    "batch_id": validation_batch_id,
                     "validation": validation_result,
                 },
                 "structured_infusions": structured_infusions,
@@ -1783,7 +1854,7 @@ def run_realtime_detection(
                 },
             }
 
-            if keep_payload or result_callback is not None:
+            if keep_payload:
                 background_payload["results"] = all_results
             emit_result(background_payload)
 
@@ -2023,7 +2094,11 @@ def run_realtime_detection(
                 ) % len(output_types)
 
             emit_status(state="running", processing=is_processing.is_set(), frame_count=frame_count, fps=float(current_fps))
+            if frame_count % 60 == 0:
+                gc.collect()
             del frames
+            del result_frames
+            del predictions
 
     except KeyboardInterrupt:
         print("\n⚠️ 用户中断")
@@ -2047,12 +2122,22 @@ def run_realtime_detection(
             if bg_thread.is_alive():
                 print("⚠️ 后台处理线程仍未结束")
 
-        video_stream.stop()
+        if video_stream is not None:
+            video_stream.stop()
 
         if video_writer:
             video_writer.release()
 
+        if processor is not None:
+            release = getattr(processor, "release", None)
+            if callable(release):
+                try:
+                    release()
+                except Exception:
+                    pass
+
         if not headless:
             cv2.destroyAllWindows()
 
+        gc.collect()
         print(f"✅ 完成！总帧数: {frame_count}")

@@ -230,6 +230,17 @@ class RknnOCRRecognizer:
         self.predet_save_dir = os.environ.get("YILIAO_PREDET_SAVE_DIR", "").strip()
         self.detvis_save_dir = os.environ.get("YILIAO_DETVIS_SAVE_DIR", "").strip()
 
+    def release(self):
+        for attr in ("det_rknn", "rec_rknn", "cls_rknn"):
+            model = getattr(self, attr, None)
+            if model is None:
+                continue
+            try:
+                model.release()
+            except Exception:
+                pass
+            setattr(self, attr, None)
+
     def _save_debug_image(self, name, image):
         if not self.debug_dir or image is None:
             return
@@ -496,6 +507,36 @@ class RknnOCRRecognizer:
             "pred_indices": pred_indices,
         }
 
+    def _decode_indices_to_text(self, pred_indices, blank_idx=0):
+        decoded = []
+        prev_idx = -1
+        character_count = len(self.characters)
+        for idx in pred_indices:
+            idx = int(idx)
+            if idx == blank_idx:
+                prev_idx = -1
+                continue
+            if idx != prev_idx and idx < character_count:
+                decoded.append(self.characters[idx])
+            prev_idx = idx
+        return "".join(decoded)
+
+    def _decode_mixed_rec_batch(self, start, modules, regions, rec_output, valid_count):
+        pred_indices_batch = np.argmax(rec_output[:valid_count], axis=-1)
+        results = []
+        for offset in range(valid_count):
+            module = modules[offset]
+            raw_text = self._decode_indices_to_text(pred_indices_batch[offset])
+            correct_percent = getattr(module, "correct_percent_confusion", tight_ocr.correct_percent_confusion)
+            text = correct_percent(raw_text, regions[offset])
+            results.append({
+                "index": start + offset,
+                "text": text,
+                "raw_text": raw_text,
+                "pred_indices": pred_indices_batch[offset],
+            })
+        return results
+
     def _detect_regions_batch(self, images, module, padding):
         all_regions = []
         all_boxes = []
@@ -504,7 +545,9 @@ class RknnOCRRecognizer:
 
         for start in range(0, len(images), batch_size):
             batch_images = images[start:start + batch_size]
-            det_batch = np.zeros((batch_size, 448, 448, 3), dtype=np.uint8)
+            det_batch = np.empty((batch_size, 448, 448, 3), dtype=np.uint8)
+            if len(batch_images) < batch_size:
+                det_batch[len(batch_images):] = 0
             for offset, image in enumerate(batch_images):
                 det_input = cv2.resize(image, (448, 448))
                 self._save_debug_image("det_input_448", det_input)
@@ -626,12 +669,8 @@ class RknnOCRRecognizer:
                 raise RuntimeError("OCR rec RKNN inference returned None")
             rec_output = tight_ocr.normalize_rec_output(rec_outputs[0], batch_size)
 
-            decode_items = [
-                (start + offset, batch_modules[offset], batch_regions[offset], rec_output[offset])
-                for offset in range(valid_count)
-            ]
             t_decode = time.perf_counter()
-            for result in self._parallel_map(self._decode_mixed_rec_item, decode_items):
+            for result in self._decode_mixed_rec_batch(start, batch_modules, batch_regions, rec_output, valid_count):
                 aligned_results[result["index"]] = result
             self._last_mixed_rec_decode += time.perf_counter() - t_decode
 
@@ -948,7 +987,9 @@ class RknnOCRRecognizer:
             chunk = candidates[start:start + batch_size]
             total_det_pad_inputs += batch_size - len(chunk)
             t_pre = time.perf_counter()
-            det_batch = np.zeros((batch_size, 448, 448, 3), dtype=np.uint8)
+            det_batch = np.empty((batch_size, 448, 448, 3), dtype=np.uint8)
+            if len(chunk) < batch_size:
+                det_batch[len(chunk):] = 0
             for offset, item in enumerate(chunk):
                 det_input = cv2.resize(item["image"], (448, 448))
                 self._save_debug_image("det_input_448", det_input)
@@ -1129,10 +1170,12 @@ class RknnOCRRecognizer:
             chunk = images[start:start + batch_size]
             pad_inputs += batch_size - len(chunk)
             first_input = _preprocess_cls_image(chunk[0], self.cls_input_layout)
-            batch_data = np.zeros((batch_size,) + first_input.shape, dtype=first_input.dtype)
+            batch_data = np.empty((batch_size,) + first_input.shape, dtype=first_input.dtype)
             batch_data[0] = first_input
             for offset, image in enumerate(chunk[1:], start=1):
                 batch_data[offset] = _preprocess_cls_image(image, self.cls_input_layout)
+            if len(chunk) < batch_size:
+                batch_data[len(chunk):] = 0
             t = time.perf_counter()
             with self.cls_lock:
                 outputs = self.cls_rknn.inference(inputs=[batch_data])

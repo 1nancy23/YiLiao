@@ -604,6 +604,11 @@ def load_ctc_character_list(char_dict_path):
 def ctc_greedy_decode_one(sequence_output, character_list, blank_idx=0):
     """Greedy CTC decode for one recognition output: [time_steps, num_classes]."""
     pred_indices = np.argmax(sequence_output, axis=-1)
+    return ctc_greedy_decode_indices(pred_indices, character_list, blank_idx), pred_indices
+
+
+def ctc_greedy_decode_indices(pred_indices, character_list, blank_idx=0):
+    """Decode precomputed argmax indices with the same CTC greedy rules."""
     decoded_text = []
     prev_idx = -1
 
@@ -616,7 +621,7 @@ def ctc_greedy_decode_one(sequence_output, character_list, blank_idx=0):
             decoded_text.append(character_list[idx])
         prev_idx = idx
 
-    return ''.join(decoded_text), pred_indices
+    return ''.join(decoded_text)
 
 
 def preprocess_rec_image(text_region, rec_input_size=(320, 48)):
@@ -730,20 +735,18 @@ def recognize_text_regions(rec_rknn, text_regions, character_list,
     for start in range(0, len(text_regions), batch_size):
         batch_regions = text_regions[start:start + batch_size]
         valid_count = len(batch_regions)
-        batch_images = [preprocess_rec_image(region, rec_input_size) for region in batch_regions]
-
-        while len(batch_images) < batch_size:
-            batch_images.append(blank_image.copy())
-
-        batch_input = np.stack(batch_images, axis=0)
+        batch_input = np.empty((batch_size,) + blank_image.shape, dtype=blank_image.dtype)
+        for offset, region in enumerate(batch_regions):
+            batch_input[offset] = preprocess_rec_image(region, rec_input_size)
+        if valid_count < batch_size:
+            batch_input[valid_count:] = blank_image
         rec_outputs = rec_rknn.inference(inputs=[batch_input])
         rec_output = normalize_rec_output(rec_outputs[0], batch_size)
+        pred_indices_batch = np.argmax(rec_output[:valid_count], axis=-1)
 
         for offset in range(valid_count):
-            raw_text, pred_indices = ctc_greedy_decode_one(
-                rec_output[offset],
-                character_list
-            )
+            pred_indices = pred_indices_batch[offset]
+            raw_text = ctc_greedy_decode_indices(pred_indices, character_list)
             text = correct_percent_confusion(raw_text, batch_regions[offset])
             if not text.strip():
                 continue

@@ -6,6 +6,7 @@ import json
 import pickle
 import pymysql
 import time
+import hashlib
 from rknnlite.api import RKNNLite
 from src.identification.rknn_runtime_lock import get_rknn_lock
 
@@ -40,6 +41,10 @@ def _default_feature_cache_path():
     )
 
 
+def _default_feature_root_path():
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "feat_data"))
+
+
 def _batch_size_from_path(path, default=1):
     name = os.path.basename(str(path)).lower()
     marker = "bs"
@@ -52,6 +57,27 @@ def _batch_size_from_path(path, default=1):
         digits.append(name[pos])
         pos += 1
     return int("".join(digits)) if digits else default
+
+
+def _feature_root_signature(root_folder):
+    entries = []
+    for medicine_name in sorted(os.listdir(root_folder)):
+        medicine_dir = os.path.join(root_folder, medicine_name)
+        if not os.path.isdir(medicine_dir):
+            continue
+        for file_name in sorted(os.listdir(medicine_dir)):
+            if not file_name.lower().endswith((".jpg", ".jpeg", ".png")):
+                continue
+            path = os.path.join(medicine_dir, file_name)
+            stat = os.stat(path)
+            rel = os.path.relpath(path, root_folder).replace("\\", "/")
+            entries.append(f"{rel}|{stat.st_size}|{stat.st_mtime_ns}")
+    digest = hashlib.sha256("\n".join(entries).encode("utf-8")).hexdigest()
+    return {
+        "root": os.path.abspath(root_folder),
+        "digest": digest,
+        "entries": len(entries),
+    }
 
 
 def reverse_rotate_with_label(img, pred):
@@ -118,7 +144,6 @@ class PharmaceuticalBottleClassifier:
             sigma=1.6
         )
         FLANN_INDEX_KDTREE = 1
-        self.cls_model = RKNNLite()
         self.cls_model_path = os.environ.get("YILIAO_CLS_MODEL", _default_cls_model_path())
         self.cls_batch_size = int(os.environ.get(
             "YILIAO_CLS_BATCH_SIZE",
@@ -130,10 +155,11 @@ class PharmaceuticalBottleClassifier:
             _batch_size_from_path(self.cls_model_path, default=1),
         )
         self.cls_input_layout = "NHWC"
-        self.cls_model.load_rknn(self.cls_model_path)
         self.cls_core = RKNNLite.NPU_CORE_2
         self.cls_lock = get_rknn_lock(self.cls_core, secondary_domain=True)
-        CLS = self.cls_model.init_runtime(core_mask=self.cls_core)
+        self.cls_model = None
+        if os.environ.get("YILIAO_EAGER_BOTTLE_CLS", "0").lower() in ("1", "true", "yes", "on"):
+            self._ensure_cls_model()
         index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=3)
         search_params = dict(checks=20)
         self.flann = cv2.FlannBasedMatcher(index_params, search_params)
@@ -151,6 +177,21 @@ class PharmaceuticalBottleClassifier:
         _runtime_log(f"[初始化完成] 已加载 {len(self._templates_cache)} 种药品特征到内存")
 
     # ---------- 私有辅助方法 ----------
+    def _ensure_cls_model(self):
+        if self.cls_model is not None:
+            return
+        self.cls_model = RKNNLite()
+        self.cls_model.load_rknn(self.cls_model_path)
+        self.cls_model.init_runtime(core_mask=self.cls_core)
+
+    def release(self):
+        if self.cls_model is not None:
+            try:
+                self.cls_model.release()
+            except Exception:
+                pass
+            self.cls_model = None
+
     def _preprocess_image(self, image):
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
@@ -368,6 +409,50 @@ class PharmaceuticalBottleClassifier:
     def _load_all_features(self):
         """从数据库一次性加载全部药品特征到内存"""
         cache_path = os.environ.get("YILIAO_FEATURE_CACHE", _default_feature_cache_path())
+        feature_root = os.environ.get("YILIAO_FEATURE_ROOT", "").strip()
+        if feature_root:
+            feature_root = os.path.abspath(feature_root)
+            if not os.path.isdir(feature_root):
+                raise FileNotFoundError(f"feature template folder not found: {feature_root}")
+
+            signature = _feature_root_signature(feature_root)
+            if signature["entries"] <= 0:
+                raise ValueError(f"feature template folder has no images: {feature_root}")
+
+            if cache_path and os.path.exists(cache_path):
+                try:
+                    with open(cache_path, "rb") as f:
+                        cache = pickle.load(f)
+                    if cache.get("feature_root_signature") == signature:
+                        self._templates_cache = cache.get("templates", {})
+                        self._deep_avg_cache = cache.get("deep_avg", {})
+                        if not self._templates_cache:
+                            raise ValueError("feature cache has no templates")
+                        _runtime_log(
+                            f"[特征缓存] 已从 {cache_path} 加载 {len(self._templates_cache)} 种药品特征"
+                        )
+                        return
+                    _runtime_log("[特征缓存] 模板目录已变化，重新构建缓存")
+                except Exception as e:
+                    _runtime_log(f"[特征缓存] 读取失败，重新构建缓存: {e}")
+
+            self._load_features_from_template_folder(feature_root)
+            if not self._templates_cache:
+                raise ValueError(f"no feature templates loaded from: {feature_root}")
+            if cache_path:
+                with open(cache_path, "wb") as f:
+                    pickle.dump(
+                        {
+                            "templates": self._templates_cache,
+                            "deep_avg": self._deep_avg_cache,
+                            "feature_root_signature": signature,
+                        },
+                        f,
+                        protocol=pickle.HIGHEST_PROTOCOL,
+                    )
+                _runtime_log(f"[特征缓存] 已根据模板目录写入 {cache_path}")
+            return
+
         if cache_path and os.path.exists(cache_path):
             try:
                 with open(cache_path, "rb") as f:
@@ -442,6 +527,30 @@ class PharmaceuticalBottleClassifier:
                 _runtime_log(f"[特征缓存] 已写入 {cache_path}")
             except Exception as e:
                 _runtime_log(f"[特征缓存] 写入失败: {e}")
+
+    def _load_features_from_template_folder(self, root_folder):
+        self._templates_cache.clear()
+        self._deep_avg_cache.clear()
+        for medicine_name in sorted(os.listdir(root_folder)):
+            medicine_dir = os.path.join(root_folder, medicine_name)
+            if not os.path.isdir(medicine_dir):
+                continue
+            image_files = sorted([
+                name for name in os.listdir(medicine_dir)
+                if name.lower().endswith((".jpg", ".jpeg", ".png"))
+            ])[:6]
+            sift_templates = []
+            for image_file in image_files:
+                image_path = os.path.join(medicine_dir, image_file)
+                image = cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
+                if image is None:
+                    continue
+                _kp, desc = self._extract_features_from_image(image)
+                if desc is not None:
+                    sift_templates.append({"desc_sift": desc})
+            if sift_templates:
+                self._templates_cache[medicine_name] = sift_templates
+                self._deep_avg_cache[medicine_name] = None
 
     def reload_features(self):
         """公共接口：手动刷新内存缓存（数据库有外部变更时调用）"""
@@ -644,6 +753,7 @@ class PharmaceuticalBottleClassifier:
             raise ValueError("未找到任何指定药品的特征，无法分类")
         start_time2 = time.time() if log_timing else 0.0
         
+        self._ensure_cls_model()
         input_nchw = preprocess_cls_image(image, self.cls_input_layout)
         batch_size = max(1, int(self.cls_batch_size))
         batch_data = np.zeros((batch_size,) + input_nchw.shape, dtype=input_nchw.dtype)

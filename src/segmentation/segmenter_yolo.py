@@ -641,6 +641,14 @@ class YOLOTileProcessor:
         self.rknn_lite.init_runtime(core_mask=self.yolo_core)
         print(self.model)
 
+    def release(self):
+        if self.rknn_lite is not None:
+            try:
+                self.rknn_lite.release()
+            except Exception:
+                pass
+            self.rknn_lite = None
+
     def _extract_tiles(self, image: np.ndarray) -> List[Tuple[np.ndarray, Tuple[int, int, int, int]]]:
         h, w = image.shape[:2]
         stride = self.tile_size - self.overlap
@@ -1101,18 +1109,18 @@ class YOLOTileProcessor:
                 float(self.class_iou_thres.get(int(cls_id), self.iou_thres))
             )
 
-            for i in keep_indices:
-                local_idx = i if isinstance(i, np.integer) else i[0]
-                idx = cls_indices[local_idx]
-
-                final_detections.append([
-                    float(x1_abs[idx]),
-                    float(y1_abs[idx]),
-                    float(x2_abs[idx]),
-                    float(y2_abs[idx]),
-                    float(filtered_scores[idx]),
-                    int(filtered_class_ids[idx])
-                ])
+            if len(keep_indices) > 0:
+                local_indices = np.asarray(keep_indices, dtype=np.int64).reshape(-1)
+                kept = cls_indices[local_indices]
+                cls_detections = np.column_stack((
+                    x1_abs[kept],
+                    y1_abs[kept],
+                    x2_abs[kept],
+                    y2_abs[kept],
+                    filtered_scores[kept],
+                    filtered_class_ids[kept],
+                ))
+                final_detections.extend(cls_detections.tolist())
 
         # 新增：指定切片结果返回前，也删除同类别中被大框包含的小框
         final_detections = self._suppress_same_class_contained(final_detections)
