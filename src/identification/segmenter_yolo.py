@@ -1142,4 +1142,4 @@ if __name__ == '__main__':
     result = processor.draw_detections(img, dets, class_names=['0', '1', '2'])
     result = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
 
-    cv2.imwrite('output.jpg', result)
+    # Intermediate image saving disabled.

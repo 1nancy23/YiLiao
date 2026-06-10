@@ -46,6 +46,8 @@ class DrugMatcher:
         # 患者名称缓存
         self._patient_names = None
         self._match_cache = {}
+        self._drug_match_records_key = None
+        self._drug_match_records = None
         self._weak_drug_terms = {
             "注射", "射用", "用", "液", "钠", "酸", "素", "水", "片", "胶囊",
             "批号", "生产", "有效", "规格",
@@ -151,8 +153,10 @@ class DrugMatcher:
         clean_query = self._clean_match_text(self._normalize_ocr_for_drugs(query))
         terms = self._extract_strong_query_terms(clean_query)
         ranked = []
-        for name in name_list:
-            clean_name = self._clean_match_text(self._normalize_ocr_for_drugs(name))
+        lower_query = clean_query.lower()
+        for record in self._get_drug_match_records(name_list):
+            name = record["name"]
+            clean_name = record["clean_name"]
             if not clean_name:
                 continue
 
@@ -161,22 +165,18 @@ class DrugMatcher:
             token = fuzz.token_set_ratio(clean_query, clean_name)
             term_hits = [term for term in terms if term in clean_name]
             term_score = sum(len(term) * 12 for term in term_hits)
-            alias_hits = [
-                alias for alias in self._drug_keyword_aliases.get(name, ())
-                if self._clean_match_text(self._normalize_ocr_for_drugs(alias)) in clean_query
-            ]
+            alias_hits = [alias for alias in record["aliases"] if alias in clean_query]
             alias_score = sum(max(2, len(alias)) * 16 for alias in alias_hits)
             fuzzy_score = max(partial, ratio, token)
             score = fuzzy_score + term_score + alias_score
-            if re.search(r"a?2a", clean_name) and re.search(r"a?2a", clean_query):
+            if record["has_a2a"] and re.search(r"a?2a", clean_query):
                 score += 80
-            if re.search(r"a?2b", clean_name) and re.search(r"a?2b", clean_query):
+            if record["has_a2b"] and re.search(r"a?2b", clean_query):
                 score += 80
-            if re.search(r"a?2a", clean_name) and re.search(r"a?2b", clean_query):
+            if record["has_a2a"] and re.search(r"a?2b", clean_query):
                 score -= 60
-            if re.search(r"a?2b", clean_name) and re.search(r"a?2a", clean_query):
+            if record["has_a2b"] and re.search(r"a?2a", clean_query):
                 score -= 60
-            lower_query = clean_query.lower()
             for target, aliases in self._drug_alias_rules:
                 if target in clean_name and any(alias.lower() in lower_query for alias in aliases):
                     score += 120
@@ -190,6 +190,28 @@ class DrugMatcher:
         if limit is not None:
             ranked = ranked[:limit]
         return [item[0] for item in ranked]
+
+    def _get_drug_match_records(self, name_list: List[str]):
+        key = tuple(name_list or ())
+        if self._drug_match_records_key == key and self._drug_match_records is not None:
+            return self._drug_match_records
+        records = []
+        for name in name_list or []:
+            clean_name = self._clean_match_text(self._normalize_ocr_for_drugs(name))
+            aliases = tuple(
+                self._clean_match_text(self._normalize_ocr_for_drugs(alias))
+                for alias in self._drug_keyword_aliases.get(name, ())
+            )
+            records.append({
+                "name": name,
+                "clean_name": clean_name,
+                "aliases": aliases,
+                "has_a2a": bool(re.search(r"a?2a", clean_name)),
+                "has_a2b": bool(re.search(r"a?2b", clean_name)),
+            })
+        self._drug_match_records_key = key
+        self._drug_match_records = records
+        return records
 
     def _load_drug_names(self):
         """从数据库加载所有药品名称到内存"""
@@ -209,6 +231,8 @@ class DrugMatcher:
             raise Exception(f"数据库查询失败：{e}")
 
         self._drug_names = [name for name in drug_names if name]  # 过滤空值
+        self._drug_match_records_key = None
+        self._drug_match_records = None
         _runtime_log(f"✅ 已加载 {len(self._drug_names)} 个药品名称")
 
     def _load_patient_names(self):

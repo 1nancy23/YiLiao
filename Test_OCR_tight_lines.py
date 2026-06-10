@@ -184,7 +184,10 @@ def _clamp_padding(size, padding_ratio, min_padding, max_padding):
 
 
 def expand_box_points(points, image_width, image_height, padding_ratio=0.10,
-                      min_padding=4, max_padding=18):
+                      min_padding=4, max_padding=18,
+                      short_side_padding_ratio=None,
+                      min_short_side_padding=None,
+                      max_short_side_padding=None):
     """Expand a rotated rectangle slightly while keeping it inside the image."""
     points = np.asarray(points, dtype=np.float32)
     rect = cv2.minAreaRect(points)
@@ -195,6 +198,23 @@ def expand_box_points(points, image_width, image_height, padding_ratio=0.10,
 
     pad_w = _clamp_padding(box_w, padding_ratio, min_padding, max_padding)
     pad_h = _clamp_padding(box_h, padding_ratio, min_padding, max_padding)
+    if short_side_padding_ratio is not None:
+        short_side = min(box_w, box_h)
+        long_side = max(box_w, box_h)
+        short_pad = _clamp_padding(
+            short_side,
+            short_side_padding_ratio,
+            min_padding if min_short_side_padding is None else min_short_side_padding,
+            max_padding if max_short_side_padding is None else max_short_side_padding,
+        )
+        # Keep short fragments horizontal after padding. Otherwise a tiny
+        # curved-text box can become portrait and get rotated before Rec.
+        max_shape_safe_pad = max(0.0, (long_side * 0.78 - short_side) / 2.0)
+        short_pad = min(short_pad, max_shape_safe_pad)
+        if box_w <= box_h:
+            pad_w = max(pad_w, short_pad)
+        else:
+            pad_h = max(pad_h, short_pad)
     expanded_rect = (
         (center_x, center_y),
         (box_w + pad_w * 2, box_h + pad_h * 2),
@@ -391,7 +411,14 @@ def merge_same_line_boxes(text_boxes, image_width, image_height,
 
 def extract_text_regions(original_image, output, scale_factor=1, threshold=0.3,
                          box_padding_ratio=0.10, min_box_padding=4,
-                         max_box_padding=18):
+                         max_box_padding=18, preserve_rotated_boxes=False,
+                         short_side_padding_ratio=None,
+                         min_short_side_padding=None,
+                         max_short_side_padding=None,
+                         merge_kwargs=None,
+                         final_short_side_padding_ratio=None,
+                         final_min_short_side_padding=None,
+                         final_max_short_side_padding=None):
     """
     从原图中切分出所有检测到的文本区域
     
@@ -450,7 +477,10 @@ def extract_text_regions(original_image, output, scale_factor=1, threshold=0.3,
             height,
             padding_ratio=box_padding_ratio,
             min_padding=min_box_padding,
-            max_padding=max_box_padding
+            max_padding=max_box_padding,
+            short_side_padding_ratio=short_side_padding_ratio,
+            min_short_side_padding=min_short_side_padding,
+            max_short_side_padding=max_short_side_padding,
         )
         candidate_text_boxes.append(points)
         continue
@@ -480,9 +510,42 @@ def extract_text_regions(original_image, output, scale_factor=1, threshold=0.3,
                 expanded_text_boxes.append(points)
     
     valid_text_boxes = []
-    merged_text_boxes = merge_same_line_boxes(candidate_text_boxes, width, height)
+    if preserve_rotated_boxes:
+        horizontal_boxes = []
+        rotated_boxes = []
+        for points in candidate_text_boxes:
+            if is_rotated_text(points):
+                rotated_boxes.append(points)
+            else:
+                horizontal_boxes.append(points)
+        merged_text_boxes = merge_same_line_boxes(
+            horizontal_boxes,
+            width,
+            height,
+            **(merge_kwargs or {}),
+        )
+        merged_text_boxes.extend(rotated_boxes)
+    else:
+        merged_text_boxes = merge_same_line_boxes(
+            candidate_text_boxes,
+            width,
+            height,
+            **(merge_kwargs or {}),
+        )
 
     for points in merged_text_boxes:
+        if final_short_side_padding_ratio is not None:
+            points = expand_box_points(
+                points,
+                width,
+                height,
+                padding_ratio=0.0,
+                min_padding=0,
+                max_padding=0,
+                short_side_padding_ratio=final_short_side_padding_ratio,
+                min_short_side_padding=final_min_short_side_padding,
+                max_short_side_padding=final_max_short_side_padding,
+            )
         x_min, y_min = np.min(points, axis=0)
         x_max, y_max = np.max(points, axis=0)
         x_min = max(0, int(x_min))
@@ -571,6 +634,61 @@ def extract_rotated_text(image, points):
     warped = cv2.warpPerspective(image, M, (width, height))
     
     return warped
+
+
+def text_box_angle(points):
+    """Return the detected text baseline angle normalized to [-90, 90)."""
+    rect = cv2.minAreaRect(np.asarray(points, dtype=np.float32))
+    (_, _), (box_w, box_h), angle = rect
+    if box_w < box_h:
+        angle += 90.0
+    while angle >= 90.0:
+        angle -= 180.0
+    while angle < -90.0:
+        angle += 180.0
+    return float(angle)
+
+
+def is_rotated_text(points, angle_threshold=5.0):
+    return abs(text_box_angle(points)) >= float(angle_threshold)
+
+
+def _order_box_points(points):
+    points = np.asarray(points, dtype=np.float32).reshape(4, 2)
+    ordered = np.zeros((4, 2), dtype=np.float32)
+    sums = points.sum(axis=1)
+    diffs = np.diff(points, axis=1).reshape(-1)
+    ordered[0] = points[np.argmin(sums)]
+    ordered[2] = points[np.argmax(sums)]
+    ordered[1] = points[np.argmin(diffs)]
+    ordered[3] = points[np.argmax(diffs)]
+    return ordered
+
+
+def extract_rotated_text(image, points):
+    """Rectify a detected rotated text box into a horizontal Rec crop."""
+    pts = _order_box_points(points)
+    width_top = np.linalg.norm(pts[0] - pts[1])
+    width_bottom = np.linalg.norm(pts[2] - pts[3])
+    width = max(int(round(width_top)), int(round(width_bottom)))
+    height_left = np.linalg.norm(pts[0] - pts[3])
+    height_right = np.linalg.norm(pts[1] - pts[2])
+    height = max(int(round(height_left)), int(round(height_right)))
+    if width <= 0 or height <= 0:
+        return None
+
+    dst_pts = np.array([
+        [0, 0],
+        [width - 1, 0],
+        [width - 1, height - 1],
+        [0, height - 1],
+    ], dtype=np.float32)
+    transform = cv2.getPerspectiveTransform(pts, dst_pts)
+    warped = cv2.warpPerspective(image, transform, (width, height))
+    if warped.shape[0] > warped.shape[1]:
+        warped = cv2.rotate(warped, cv2.ROTATE_90_CLOCKWISE)
+    return warped
+
 
 def load_ctc_character_list(char_dict_path):
     """Load PaddleOCR-style character dictionary and add the CTC blank token."""

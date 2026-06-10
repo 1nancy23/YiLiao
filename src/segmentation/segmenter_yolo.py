@@ -519,9 +519,19 @@
 
 import cv2
 import numpy as np
+import os
 from typing import List, Tuple, Optional
 from rknnlite.api import RKNNLite
 from src.identification.rknn_runtime_lock import get_rknn_lock
+
+
+def _runtime_logs_enabled():
+    return os.environ.get("YILIAO_RUNTIME_LOGS", "0").lower() in ("1", "true", "yes", "on")
+
+
+def _runtime_log(*args, **kwargs):
+    if _runtime_logs_enabled():
+        print(*args, **kwargs)
 
 
 def postprocess_rknn_output(output, original_image, conf_threshold=0.5, iou_threshold=0.5):
@@ -538,7 +548,7 @@ def postprocess_rknn_output(output, original_image, conf_threshold=0.5, iou_thre
     filtered_scores = max_class_scores[conf_mask]
     filtered_class_ids = class_ids[conf_mask]
 
-    print(f"找到 {len(filtered_boxes)} 个高于 {conf_threshold} 阈值的检测框")
+    _runtime_log(f"找到 {len(filtered_boxes)} 个高于 {conf_threshold} 阈值的检测框")
 
     if len(filtered_boxes) == 0:
         return original_image
@@ -599,7 +609,7 @@ def postprocess_rknn_output(output, original_image, conf_threshold=0.5, iou_thre
             1
         )
 
-        print(f"绘制框: 类别={class_id}, 置信度={score:.2f}, 坐标=({x1},{y1},{x2},{y2})")
+        _runtime_log(f"绘制框: 类别={class_id}, 置信度={score:.2f}, 坐标=({x1},{y1},{x2},{y2})")
 
     return result_image
 
@@ -611,6 +621,7 @@ class YOLOTileProcessor:
             model_path: str = './model_yolo_0602.rknn',
             device: str = 'cuda',
             tile_size: int = 640,
+            input_size: int = 640,
             overlap: int = 128,
             conf_thres: float = 0.2,
             iou_thres: float = 0.90,
@@ -621,6 +632,7 @@ class YOLOTileProcessor:
     ):
         self.device = device
         self.tile_size = tile_size
+        self.input_size = int(input_size)
         self.overlap = overlap
         self.conf_thres = conf_thres
         self.iou_thres = iou_thres
@@ -639,7 +651,7 @@ class YOLOTileProcessor:
         self.yolo_core = RKNNLite.NPU_CORE_0
         self.yolo_lock = get_rknn_lock(self.yolo_core)
         self.rknn_lite.init_runtime(core_mask=self.yolo_core)
-        print(self.model)
+        _runtime_log(self.model)
 
     def release(self):
         if self.rknn_lite is not None:
@@ -684,7 +696,7 @@ class YOLOTileProcessor:
             tile_offset: Tuple[int, int],
             tile_size: Tuple[int, int]
     ) -> List[List[float]]:
-        print("results.shape:", results.shape)
+        _runtime_log("results.shape:", results.shape)
 
         boxes = results.transpose(1, 0)
 
@@ -759,6 +771,8 @@ class YOLOTileProcessor:
 
             # 面积从大到小排序，优先保留大框
             order = np.argsort(-areas)
+            scores = cls_dets[:, 4]
+            order = np.lexsort((areas, -scores))
             keep_indices = []
 
             for idx in order:
@@ -784,7 +798,7 @@ class YOLOTileProcessor:
                     contain_ratio = inter_area / (smaller_area + 1e-6)
 
                     # 当前框被已经保留的大框包含，则删除当前框
-                    if contain_ratio >= contain_thres and kept_area >= current_area:
+                    if contain_ratio >= contain_thres:
                         should_remove = True
                         break
 
@@ -811,11 +825,14 @@ class YOLOTileProcessor:
 
             cls_boxes = boxes[idxs]
             cls_scores = scores[idxs]
+            cls_boxes_xywh = cls_boxes.copy()
+            cls_boxes_xywh[:, 2] = cls_boxes[:, 2] - cls_boxes[:, 0]
+            cls_boxes_xywh[:, 3] = cls_boxes[:, 3] - cls_boxes[:, 1]
 
             nms_idx = cv2.dnn.NMSBoxes(
-                cls_boxes.tolist(),
+                cls_boxes_xywh.tolist(),
                 cls_scores.tolist(),
-                self.conf_thres,
+                float(self.class_conf_thres.get(int(cls), self.conf_thres)),
                 float(self.class_iou_thres.get(int(cls), self.iou_thres))
             )
 
@@ -838,18 +855,18 @@ class YOLOTileProcessor:
         for i in range(0, len(tiles), self.batch_size):
             batch = tiles[i:i + self.batch_size]
 
-            batch_imgs = [t[0] for t in batch]
+            batch_imgs = [cv2.cvtColor(t[0], cv2.COLOR_BGR2RGB) for t in batch]
             batch_offsets = [t[1][:2] for t in batch]
             batch_sizes = [(t[1][2] - t[1][0], t[1][3] - t[1][1]) for t in batch]
 
             batch_imgs = np.stack(batch_imgs, axis=0)
 
-            print(len(batch_imgs), batch_imgs.shape)
+            _runtime_log(len(batch_imgs), batch_imgs.shape)
 
             with self.yolo_lock:
                 results = self.rknn_lite.inference(inputs=[batch_imgs])
 
-            print(batch_offsets)
+            _runtime_log(batch_offsets)
 
             for r, offset, size in zip(results[0], batch_offsets, batch_sizes):
                 all_detections.extend(self._map_boxes_to_original(r, offset, size))
@@ -881,7 +898,11 @@ class YOLOTileProcessor:
             if class_names:
                 cls_name = class_names[int(cls_id)]
             else:
-                cls_name = f"Class {int(cls_id)}"
+                cls_name = {
+                    0: "bottle",
+                    1: "bag",
+                    2: "infusion",
+                }.get(int(cls_id), f"Class {int(cls_id)}")
 
             label = f"{cls_name}: {conf:.2f}"
 
@@ -966,8 +987,6 @@ class YOLOTileProcessor:
         result_frames, predictions = [], []
 
         for frame in frames:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
             dets = self.process_whole_image_once(frame)
 
             dets_clean = [list(map(float, d[:6])) for d in dets]
@@ -1040,11 +1059,11 @@ class YOLOTileProcessor:
 
         offset_x, offset_y = x1, y1
 
-        target_size = 640
-        resized_roi = cv2.resize(roi, (target_size, target_size))
-
-        scale_x = original_roi_w / target_size
-        scale_y = original_roi_h / target_size
+        target_size = self.input_size
+        scale_x = original_roi_w / float(target_size)
+        scale_y = original_roi_h / float(target_size)
+        resized_roi = cv2.resize(roi, (target_size, target_size), interpolation=cv2.INTER_LINEAR)
+        resized_roi = cv2.cvtColor(resized_roi, cv2.COLOR_BGR2RGB)
 
         input_data = np.expand_dims(resized_roi, axis=0).astype(np.float32)
 
@@ -1092,6 +1111,11 @@ class YOLOTileProcessor:
         x2_abs = cx_abs + (w_abs / 2)
         y2_abs = cy_abs + (h_abs / 2)
 
+        np.clip(x1_abs, offset_x, offset_x + original_roi_w, out=x1_abs)
+        np.clip(y1_abs, offset_y, offset_y + original_roi_h, out=y1_abs)
+        np.clip(x2_abs, offset_x, offset_x + original_roi_w, out=x2_abs)
+        np.clip(y2_abs, offset_y, offset_y + original_roi_h, out=y2_abs)
+
         detections_for_nms = np.stack(
             [x1_abs, y1_abs, x2_abs, y2_abs],
             axis=1
@@ -1102,10 +1126,13 @@ class YOLOTileProcessor:
             cls_indices = np.where(filtered_class_ids == cls_id)[0]
             cls_boxes = detections_for_nms[cls_indices]
             cls_scores = filtered_scores[cls_indices]
+            cls_boxes_xywh = cls_boxes.copy()
+            cls_boxes_xywh[:, 2] = cls_boxes[:, 2] - cls_boxes[:, 0]
+            cls_boxes_xywh[:, 3] = cls_boxes[:, 3] - cls_boxes[:, 1]
             keep_indices = cv2.dnn.NMSBoxes(
-                cls_boxes.tolist(),
+                cls_boxes_xywh.tolist(),
                 cls_scores.tolist(),
-                self.conf_thres,
+                float(self.class_conf_thres.get(int(cls_id), self.conf_thres)),
                 float(self.class_iou_thres.get(int(cls_id), self.iou_thres))
             )
 
@@ -1159,4 +1186,4 @@ if __name__ == '__main__':
     result = processor.draw_detections(img, dets, class_names=['0', '1', '2'])
     result = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
 
-    cv2.imwrite('output.jpg', result)
+    # Intermediate image saving disabled.

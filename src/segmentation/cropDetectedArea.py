@@ -95,11 +95,9 @@ if __name__ == "__main__":
 
     # 保存结果
     if crop_bag is not None:
-        os.makedirs("train/bag", exist_ok=True)
-        cv2.imwrite(f"train/bag/bag_{int(time.time())}.jpg", crop_bag)
+        # Intermediate image saving disabled.
         print(f"✅ 药袋裁剪成功！尺寸: {crop_bag.shape}")
 
     if crop_bottle is not None:
-        os.makedirs("train/bottle", exist_ok=True)
-        cv2.imwrite(f"train/bottle/bottle_{int(time.time())}.jpg", crop_bottle)
+        # Intermediate image saving disabled.
         print(f"✅ 药瓶裁剪成功！尺寸: {crop_bottle.shape}")

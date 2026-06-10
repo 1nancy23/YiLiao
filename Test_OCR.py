@@ -473,7 +473,8 @@ def extract_text_regions(original_image, output, scale_factor=1, threshold=0.3,
             margin_ratio=edge_margin_ratio,
             min_margin=edge_min_margin
         )
-        print(f"edge filter: boxes {before_filter} -> {len(candidate_text_boxes)}")
+        if os.environ.get("YILIAO_RUNTIME_LOGS", "0").lower() in ("1", "true", "yes", "on"):
+            print(f"edge filter: boxes {before_filter} -> {len(candidate_text_boxes)}")
 
     if merge_boxes:
         merge_kwargs = merge_kwargs or {}

@@ -947,16 +947,27 @@ def run_realtime_detection(
         quiet_ocr=True,
         headless=None,
         trigger_mode="auto",
+        trigger_mode_getter=None,
         manual_trigger_event=None,
         stop_event=None,
         status_callback=None,
         result_callback=None,
         frame_callback=None,
+        yolo_model_path="./model_yolo_0602.rknn",
+        yolo_input_size=640,
+        basket_model_path="./model_bask_0609_n.rknn",
+        basket_input_size=640,
+        basket_area_threshold=0.40,
+        basket_sharpness_threshold=55.0,
+        basket_capture_timeout=10.0,
+        basket_resume_delay=1.0,
 ):
     import gc
     import builtins
 
     runtime_logs = os.environ.get("YILIAO_RUNTIME_LOGS", "0").lower() in ("1", "true", "yes", "on")
+    save_video = False
+    single_image_output_json = None
 
     def print(*args, **kwargs):
         if runtime_logs:
@@ -965,6 +976,15 @@ def run_realtime_detection(
     trigger_mode = str(trigger_mode or "auto").lower()
     if trigger_mode not in ("auto", "manual"):
         trigger_mode = "auto"
+
+    def current_trigger_mode():
+        if trigger_mode_getter is None:
+            return trigger_mode
+        try:
+            value = str(trigger_mode_getter() or trigger_mode).lower()
+            return value if value in ("auto", "manual") else trigger_mode
+        except Exception:
+            return trigger_mode
 
     def emit_status(**kwargs):
         if status_callback is None:
@@ -1018,6 +1038,7 @@ def run_realtime_detection(
             headless = not bool(os.environ.get("DISPLAY"))
     print(f"  headless显示模式: {headless}")
     verbose_runtime = runtime_logs and os.environ.get("YILIAO_VERBOSE_RUNTIME", "0").lower() not in ("0", "false", "no")
+    render_detection_frames = save_video
 
     # ============================================================
     # RTSP 连接
@@ -1057,8 +1078,10 @@ def run_realtime_detection(
 
     processor = YOLOTileProcessor(
         model=model,
+        model_path=yolo_model_path,
         device=str(device),
-        tile_size=640,
+        tile_size=yolo_input_size,
+        input_size=yolo_input_size,
         overlap=64,
         conf_thres=0.45,
         iou_thres=0.85,
@@ -1075,6 +1098,15 @@ def run_realtime_detection(
             2: 0.45,
         },
     )
+    basket_trigger = None
+    if not single_image_path and basket_model_path:
+        from src.segmentation.basket_trigger import BasketAutoTrigger
+        basket_trigger = BasketAutoTrigger(
+            model_path=basket_model_path,
+            input_size=basket_input_size,
+            area_threshold=basket_area_threshold,
+            sharpness_threshold=basket_sharpness_threshold,
+        )
 
     # ============================================================
     # 视频录制器
@@ -1116,6 +1148,11 @@ def run_realtime_detection(
     frame_count = 0
     display_window_ready = False
     last_trigger_time = time.time()
+    basket_resume_at = [0.0]
+    last_basket_status = {}
+    auto_capture_pending = False
+    auto_capture_started_at = 0.0
+    auto_trigger_sequence = 0
 
     print("\n" + "=" * 60)
     print("🚀 实时目标检测已启动 YOLOv8 + 切片处理")
@@ -1125,7 +1162,7 @@ def run_realtime_detection(
     print("=" * 60 + "\n")
 
     # 缓存最近批次
-    max_batches_kept = 2
+    max_batches_kept = 3
     n_batch_frames = deque(maxlen=max_batches_kept)
     n_batch_predictions = deque(maxlen=max_batches_kept)
 
@@ -1427,7 +1464,7 @@ def run_realtime_detection(
     # 后台处理主函数
     # ============================================================
 
-    def process_batch_in_background(snapshot_frames, snapshot_predictions, keep_payload=False):
+    def process_batch_in_background(snapshot_frames, snapshot_predictions, keep_payload=False, skip_ocr=False):
         """
         后台线程处理流程：
         1. 选择最清晰帧
@@ -1446,7 +1483,62 @@ def run_realtime_detection(
             # 选择最清晰帧
             # ====================================================
 
-            if len(snapshot_frames) == 1 and len(snapshot_frames[0]) == 1:
+            def crop_group_score(crops):
+                valid_scores = []
+                for crop in crops:
+                    if crop is None or crop.size == 0:
+                        continue
+                    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+                    valid_scores.append(float(cv2.Laplacian(gray, cv2.CV_64F).var()))
+                if not valid_scores:
+                    return (0, -1.0)
+                return (len(valid_scores), sum(valid_scores) / len(valid_scores))
+
+            best_position = None
+            best_frame_score = (-1, -1.0)
+            best_bag_crops = None
+            best_bag_score = (0, -1.0)
+            best_bottle_crops = None
+            best_bottle_score = (0, -1.0)
+            best_shuye_crops = None
+            best_shuye_score = (0, -1.0)
+            for candidate_batch_idx, (candidate_frames, candidate_predictions) in enumerate(
+                zip(snapshot_frames, snapshot_predictions)
+            ):
+                for candidate_frame_idx, (candidate_frame, candidate_detections) in enumerate(
+                    zip(candidate_frames, candidate_predictions)
+                ):
+                    candidate_bags, candidate_bottles, candidate_shuyes = processor.crop_by_class(
+                        candidate_frame,
+                        candidate_detections,
+                        bag_class_id=1,
+                        bottle_class_id=0,
+                        shuye_class_id=2,
+                    )
+                    bag_score = crop_group_score(candidate_bags)
+                    bottle_score = crop_group_score(candidate_bottles)
+                    shuye_score = crop_group_score(candidate_shuyes)
+                    if bag_score > best_bag_score:
+                        best_bag_score = bag_score
+                        best_bag_crops = candidate_bags
+                    if bottle_score > best_bottle_score:
+                        best_bottle_score = bottle_score
+                        best_bottle_crops = candidate_bottles
+                    if shuye_score > best_shuye_score:
+                        best_shuye_score = shuye_score
+                        best_shuye_crops = candidate_shuyes
+                    frame_score = (
+                        bag_score[0] + shuye_score[0],
+                        bag_score[1] + shuye_score[1],
+                    )
+                    if frame_score > best_frame_score:
+                        best_frame_score = frame_score
+                        best_position = (candidate_batch_idx, candidate_frame_idx)
+
+            if best_position is not None:
+                frame_pos = best_position
+                best_frame = snapshot_frames[frame_pos[0]][frame_pos[1]]
+            elif len(snapshot_frames) == 1 and len(snapshot_frames[0]) == 1:
                 best_frame = snapshot_frames[0][0]
                 frame_pos = (0, 0)
             else:
@@ -1476,6 +1568,12 @@ def run_realtime_detection(
                 bottle_class_id=0,
                 shuye_class_id=2,
             )
+            if best_bag_crops is not None:
+                cropped_bags = best_bag_crops
+            if best_bottle_crops is not None:
+                cropped_bottles = best_bottle_crops
+            if best_shuye_crops is not None:
+                cropped_shuyes = best_shuye_crops
             t_crop_done = time.time()
 
             print(
@@ -1518,6 +1616,82 @@ def run_realtime_detection(
                 print("未检测到任何目标")
                 return
 
+            if skip_ocr:
+                empty_bottles = [
+                    {
+                        "index": i + 1,
+                        "ocr_text": "",
+                        "candidates": [],
+                        "final_medicine": None,
+                        "confidence": None,
+                        "classification_method": "",
+                        "top_3": [],
+                        "decision_reason": "",
+                        "status": "auto_ocr_skipped",
+                        "ocr_empty_reason": "",
+                        "det_region_count": 0,
+                        "rec_nonempty_count": 0,
+                    }
+                    for i, _ in enumerate(cropped_bottles)
+                ]
+                empty_bags = [
+                    {
+                        "index": i + 1,
+                        "ocr_text": "",
+                        "patient_name": None,
+                        "patient_candidates": [],
+                        "status": "auto_ocr_skipped",
+                    }
+                    for i, _ in enumerate(cropped_bags)
+                ]
+                empty_infusions = [
+                    {
+                        "index": i,
+                        "liquid": None,
+                        "concentration": None,
+                        "volume": None,
+                        "raw_text": "",
+                        "status": "auto_ocr_skipped",
+                    }
+                    for i, _ in enumerate(cropped_shuyes)
+                ]
+                background_payload = {
+                    "timing_sec": {
+                        "total": round(time.time() - t_start, 6),
+                        "recognition": 0.0,
+                    },
+                    "bottles": empty_bottles,
+                    "bags": empty_bags,
+                    "infusions": empty_infusions,
+                    "recognized_medicines": [],
+                    "patient_name": None,
+                    "patient_names": [],
+                    "database_match": {
+                        "status": "skipped",
+                        "message": "auto trigger OCR disabled",
+                        "batch_id": None,
+                        "validation": None,
+                    },
+                    "structured_infusions": empty_infusions,
+                    "counts": {
+                        "bottle": len(cropped_bottles),
+                        "bag": len(cropped_bags),
+                        "shuye": len(cropped_shuyes),
+                        "total": len(all_tasks),
+                    },
+                }
+                emit_result(background_payload)
+                del all_tasks
+                del best_frame
+                del detections
+                del snapshot_frames
+                del snapshot_predictions
+                del cropped_bottles
+                del cropped_bags
+                del cropped_shuyes
+                gc.collect()
+                return background_payload
+
             print(f"\n{'=' * 60}")
             print(
                 f"[Multi-target OCR batch] tasks={len(all_tasks)}, "
@@ -1550,10 +1724,13 @@ def run_realtime_detection(
 
             t_parallel_done = time.time()
 
-            batch_timing = {}
+            batch_timing = {
+                "total": t_parallel_done - t_start,
+                "recognition": t_parallel_done - t_crop_done,
+            }
 
             if verbose_runtime:
-                batch_timing = {
+                batch_timing.update({
                     "background_total": t_parallel_done - t_start,
                     "select_sharpest": t_select_done - t_select_start,
                     "crop": t_crop_done - t_crop_start,
@@ -1564,7 +1741,7 @@ def run_realtime_detection(
                     "bottle_count": len(cropped_bottles),
                     "bag_count": len(cropped_bags),
                     "shuye_count": len(cropped_shuyes),
-                }
+                })
                 for item in all_results:
                     prefix = item.get('type', 'unknown')
                     for key, value in (item.get('timing_sec', {}) or {}).items():
@@ -1649,6 +1826,10 @@ def run_realtime_detection(
                     "top_3": r.get("top_3") or [],
                     "decision_reason": r.get("decision_reason", ""),
                     "status": r.get("status", ""),
+                    "ocr_empty_reason": r.get("ocr_empty_reason", ""),
+                    "det_region_count": int(r.get("det_region_count", 0) or 0),
+                    "rec_nonempty_count": int(r.get("rec_nonempty_count", 0) or 0),
+                    "det_visualization": r.get("det_visualization"),
                 })
                 print(f"  药瓶 {index} OCR: {r.get('ocr_text', '')}")
                 print(f"    匹配候选: {candidates[:5]}")
@@ -1881,7 +2062,10 @@ def run_realtime_detection(
         finally:
             is_processing.clear()
             processing_done.set()
-            emit_status(state="running", processing=False, frame_count=frame_count)
+            basket_resume_at[0] = time.time() + max(1.0, float(basket_resume_delay))
+            if basket_trigger is not None:
+                basket_trigger.reset_tracking()
+            emit_status(state="running", processing=False, frame_count=frame_count, auto_resume_at=basket_resume_at[0])
             print("🔓 后台处理完成")
 
     # ============================================================
@@ -1902,7 +2086,7 @@ def run_realtime_detection(
         detect_start = time.time()
         result_frames, predictions = processor.process_frames_batch(
             [frame],
-            output_type=output_types[current_type_idx]
+            output_type=(output_types[current_type_idx] if render_detection_frames else "raw")
         )
         detect_elapsed = time.time() - detect_start
         detection_timing = {
@@ -1923,10 +2107,7 @@ def run_realtime_detection(
             "background": payload,
             "runtime_sec_excluding_model_init": round(time.time() - single_total_start, 6),
         }
-        if single_image_output_json:
-            with open(single_image_output_json, "w", encoding="utf-8") as f:
-                json.dump(result, f, ensure_ascii=False, indent=2)
-        print(f"[Realtime Single Image] result saved: {single_image_output_json}")
+        print("[Realtime Single Image] result ready")
         return result
 
     try:
@@ -1952,11 +2133,18 @@ def run_realtime_detection(
             # ====================================================
 
             process_start = time.time()
+            active_trigger_mode = current_trigger_mode()
 
-            result_frames, predictions = processor.process_frames_batch(
-                frames,
-                output_type=output_types[current_type_idx]
-            )
+            # 自动模式监控阶段只运行篮子检测。触发后固定等待五秒，
+            # 再用五秒结束时的当前帧运行药品 YOLO 和全部后续识别。
+            if active_trigger_mode == "auto":
+                result_frames = frames
+                predictions = [[] for _ in frames]
+            else:
+                result_frames, predictions = processor.process_frames_batch(
+                    frames,
+                    output_type=(output_types[current_type_idx] if render_detection_frames else "raw")
+                )
 
             process_time = time.time() - process_start
             if verbose_runtime:
@@ -1968,8 +2156,9 @@ def run_realtime_detection(
                 })
 
             # 缓存最近批次
-            n_batch_frames.append(frames)
-            n_batch_predictions.append(predictions)
+            if active_trigger_mode != "auto":
+                n_batch_frames.append(frames)
+                n_batch_predictions.append(predictions)
 
             # ====================================================
             # 定时触发后台 OCR + 匹配 + 分类
@@ -1978,27 +2167,75 @@ def run_realtime_detection(
             current_time = time.time()
             should_trigger = False
             trigger_label = "timed"
-            if trigger_mode == "manual":
+            trigger_snapshot_frames = None
+            trigger_snapshot_preds = None
+            basket_monitoring = (
+                basket_trigger is not None
+                and not is_processing.is_set()
+                and current_time >= basket_resume_at[0]
+            )
+            if active_trigger_mode == "manual":
+                auto_capture_pending = False
+                auto_capture_started_at = 0.0
+                if basket_trigger is not None:
+                    if basket_monitoring:
+                        last_basket_status = basket_trigger.update(frames[-1])
+                    basket_trigger.reset_tracking()
                 if manual_trigger_event is not None and manual_trigger_event.is_set():
                     manual_trigger_event.clear()
                     should_trigger = True
                     trigger_label = "manual"
-            elif current_time - last_trigger_time >= trigger_interval:
-                should_trigger = True
+            elif (
+                basket_trigger is not None
+                and not is_processing.is_set()
+                and current_time >= basket_resume_at[0]
+            ):
+                last_basket_status = basket_trigger.update(frames[-1])
+                if last_basket_status.get("triggered"):
+                    auto_trigger_sequence += 1
+                    auto_capture_pending = True
+                    auto_capture_started_at = current_time
+
+                if auto_capture_pending:
+                    capture_timed_out = (
+                        current_time - auto_capture_started_at
+                        >= max(0.1, float(basket_capture_timeout))
+                    )
+
+                    if capture_timed_out:
+                        final_frame = frames[-1].copy()
+
+                        _, final_predictions = processor.process_frames_batch(
+                            [final_frame],
+                            output_type=(output_types[current_type_idx] if render_detection_frames else "raw")
+                        )
+                        trigger_snapshot_frames = [[final_frame]]
+                        trigger_snapshot_preds = [final_predictions]
+                        auto_capture_pending = False
+                        auto_capture_started_at = 0.0
+                        should_trigger = True
+                        trigger_label = "basket_auto"
 
             if should_trigger:
                 if not is_processing.is_set():
                     is_processing.set()
                     processing_done.clear()
-                    emit_status(state="running", processing=True, frame_count=frame_count, trigger=trigger_label)
+                    emit_status(
+                        state="running",
+                        processing=True,
+                        frame_count=frame_count,
+                        trigger=trigger_label,
+                        basket_capture_pending=False,
+                        basket_capture_count=1 if trigger_label == "basket_auto" else 0,
+                    )
 
                     # 快照当前批次，避免多批 4K 帧在主线程和后台线程重复滞留
-                    snapshot_frames = [frames]
-                    snapshot_preds = [predictions]
+                    snapshot_frames = trigger_snapshot_frames or list(n_batch_frames) or [frames]
+                    snapshot_preds = trigger_snapshot_preds or list(n_batch_predictions) or [predictions]
 
                     bg_thread = threading.Thread(
                         target=process_batch_in_background,
-                        args=(snapshot_frames, snapshot_preds),
+                        args=(snapshot_frames, snapshot_preds, False, trigger_label == "basket_auto"),
                         daemon=False
                     )
 
@@ -2017,6 +2254,23 @@ def run_realtime_detection(
                     n_batch_predictions.clear()
                     last_trigger_time = current_time
 
+            if basket_trigger is not None and (frame_callback is not None or not headless):
+                basket_visual = basket_trigger.draw_result(
+                    frames[-1],
+                    last_basket_status,
+                    monitoring=basket_monitoring,
+                    processing=is_processing.is_set(),
+                )
+                basket_display = _resize_for_display(basket_visual, display_scale)
+                emit_frame(basket_display)
+                if not headless:
+                    if not display_window_ready:
+                        cv2.namedWindow("Basket Realtime Detection", cv2.WINDOW_NORMAL)
+                        cv2.resizeWindow("Basket Realtime Detection", DISPLAY_MAX_WIDTH, DISPLAY_MAX_HEIGHT)
+                        display_window_ready = True
+                    cv2.imshow("Basket Realtime Detection", basket_display)
+                del basket_visual
+
             # ====================================================
             # FPS 统计
             # ====================================================
@@ -2034,12 +2288,11 @@ def run_realtime_detection(
             # 显示与保存
             # ====================================================
 
-            if not headless and not display_window_ready:
-                cv2.namedWindow('YOLO Realtime Detection', cv2.WINDOW_NORMAL)
-                cv2.resizeWindow('YOLO Realtime Detection', DISPLAY_MAX_WIDTH, DISPLAY_MAX_HEIGHT)
-                display_window_ready = True
-
             for result_frame in result_frames:
+                if not render_detection_frames:
+                    frame_count += 1
+                    continue
+
                 if video_writer:
                     video_writer.write(result_frame)
 
@@ -2064,14 +2317,6 @@ def run_realtime_detection(
                     2
                 )
 
-                emit_frame(display_frame)
-
-                if not headless:
-                    cv2.imshow(
-                        'YOLO Realtime Detection',
-                        display_frame
-                    )
-
                 frame_count += 1
 
             if max_frames and frame_count >= max_frames:
@@ -2083,17 +2328,30 @@ def run_realtime_detection(
                 break
 
             elif key == ord('s'):
-                cv2.imwrite(
-                    f"screenshot_{int(time.time())}.png",
-                    result_frames[-1]
-                )
+                pass
 
             elif key == ord('r'):
                 current_type_idx = (
                     current_type_idx + 1
                 ) % len(output_types)
 
-            emit_status(state="running", processing=is_processing.is_set(), frame_count=frame_count, fps=float(current_fps))
+            emit_status(
+                state="running",
+                processing=is_processing.is_set(),
+                frame_count=frame_count,
+                fps=float(current_fps),
+                trigger_mode=active_trigger_mode,
+                basket_area_ratio=float(last_basket_status.get("area_ratio", 0.0)),
+                basket_sharpness=float(last_basket_status.get("sharpness", 0.0)),
+                basket_armed=bool(last_basket_status.get("armed", True)),
+                basket_capture_pending=bool(auto_capture_pending),
+                basket_capture_count=0,
+                basket_monitoring=bool(
+                    active_trigger_mode == "auto"
+                    and not is_processing.is_set()
+                    and current_time >= basket_resume_at[0]
+                ),
+            )
             if frame_count % 60 == 0:
                 gc.collect()
             del frames
@@ -2135,6 +2393,12 @@ def run_realtime_detection(
                     release()
                 except Exception:
                     pass
+
+        if basket_trigger is not None:
+            try:
+                basket_trigger.release()
+            except Exception:
+                pass
 
         if not headless:
             cv2.destroyAllWindows()

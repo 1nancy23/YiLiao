@@ -346,6 +346,9 @@ def process_bottle(
             )
             item["ocr_batch_mode"] = precomputed_ocr.get("batch_mode", "")
             item["ocr_batch_status"] = precomputed_ocr.get("batch_status", "")
+            item["det_region_count"] = int(precomputed_ocr.get("det_region_count", 0) or 0)
+            item["rec_nonempty_count"] = int(precomputed_ocr.get("rec_nonempty_count", 0) or 0)
+            item["det_visualization"] = precomputed_ocr.get("det_visualization")
         else:
             text, ocr_timing = _call_ocr(recognizer, "recognize", image, quiet)
             classify_image = image
@@ -356,6 +359,11 @@ def process_bottle(
         if not text:
             item["status"] = "ocr_empty"
             item["classification_zero_reason"] = "ocr_empty"
+            item["ocr_empty_reason"] = (
+                "rec_all_empty"
+                if int(item.get("det_region_count", 0) or 0) > 0
+                else "det_empty"
+            )
             if collect_timing:
                 item["timing_sec"]["total"] = time.perf_counter() - total_start
                 item["timing_sec"] = _round_timing(item["timing_sec"])
@@ -480,6 +488,8 @@ def process_bag(
             ocr_timing = dict(precomputed_ocr.get("timing", {}) or {}) if collect_timing else {}
             item["ocr_batch_mode"] = precomputed_ocr.get("batch_mode", "")
             item["ocr_batch_status"] = precomputed_ocr.get("batch_status", "")
+            item["ocr_classify_angle_pred"] = precomputed_ocr.get("classify_angle_pred")
+            item["ocr_name_roi_count"] = precomputed_ocr.get("name_roi_count")
         else:
             text, ocr_timing = _call_ocr(recognizer, "recognize_yaodai", image, quiet)
         if collect_timing:
@@ -555,6 +565,7 @@ def process_infusion(idx, image, recognizer, quiet=False, result_type="shuye", p
             ocr_timing = dict(precomputed_ocr.get("timing", {}) or {}) if collect_timing else {}
             item["ocr_batch_mode"] = precomputed_ocr.get("batch_mode", "")
             item["ocr_batch_status"] = precomputed_ocr.get("batch_status", "")
+            item["ocr_candidate_roi_count"] = precomputed_ocr.get("candidate_roi_count")
         else:
             text, ocr_timing = _call_ocr(recognizer, "recognize_shuyedai", image, quiet)
         if collect_timing:

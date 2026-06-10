@@ -17,6 +17,14 @@ LABEL_LIST = [0, 90, 180, 270]
 CLS_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
 CLS_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
 TIGHT_LINE_PADDING = {"box_padding_ratio": 0.04, "min_box_padding": 2, "max_box_padding": 8}
+BOTTLE_LINE_PADDING = {
+    "box_padding_ratio": 0.04,
+    "min_box_padding": 2,
+    "max_box_padding": 8,
+    "final_short_side_padding_ratio": 0.18,
+    "final_min_short_side_padding": 4,
+    "final_max_short_side_padding": 12,
+}
 INFUSION_PADDING = {"box_padding_ratio": 0.04, "min_box_padding": 1, "max_box_padding": 4}
 INFUSION_MERGE_KWARGS = {
     "center_y_ratio": 0.30,
@@ -97,9 +105,25 @@ def _batch_cls_preds(cls_outputs, expected_count):
     return [int(pred) for pred in preds[:expected_count]]
 
 
+def _enhance_cls_image(image):
+    """Clarify low-contrast and reflective label text for orientation CLS."""
+    if image is None or image.size == 0:
+        return np.zeros((224, 224, 3), dtype=np.uint8)
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+    l_channel, a_channel, b_channel = cv2.split(lab)
+    l_channel = cv2.createCLAHE(clipLimit=1.8, tileGridSize=(6, 6)).apply(l_channel)
+    enhanced = cv2.cvtColor(
+        cv2.merge((l_channel, a_channel, b_channel)),
+        cv2.COLOR_LAB2BGR,
+    )
+    blurred = cv2.GaussianBlur(enhanced, (0, 0), 1.0)
+    return cv2.addWeighted(enhanced, 1.35, blurred, -0.35, 0)
+
+
 def _preprocess_cls_image(image, layout="NCHW"):
+    image = _enhance_cls_image(image)
     if layout.upper() != "NCHW":
-        return cv2.resize(image, (224, 224))
+        return cv2.resize(image, (224, 224), interpolation=cv2.INTER_LINEAR)
 
     height, width = image.shape[:2]
     if height <= 0 or width <= 0:
@@ -242,50 +266,25 @@ class RknnOCRRecognizer:
             setattr(self, attr, None)
 
     def _save_debug_image(self, name, image):
-        if not self.debug_dir or image is None:
-            return
-        os.makedirs(self.debug_dir, exist_ok=True)
-        path = os.path.join(self.debug_dir, f"{self.debug_prefix}_{self._debug_seq:03d}_{name}.jpg")
-        self._debug_seq += 1
-        cv2.imwrite(path, image)
+        return
 
     def _save_predet_image(self, name, image):
-        if not self.predet_save_dir or image is None or image.size == 0:
-            return
-        safe_name = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(name))
-        os.makedirs(self.predet_save_dir, exist_ok=True)
-        cv2.imwrite(os.path.join(self.predet_save_dir, f"{safe_name}.jpg"), image)
+        return
 
     def _save_detvis_image(self, name, image, boxes):
-        if not self.detvis_save_dir or image is None or image.size == 0:
-            return
+        return
+
+    @staticmethod
+    def _draw_det_boxes(image, boxes):
         vis = image.copy()
         for box in boxes or []:
             pts = np.asarray(box, dtype=np.int32).reshape(-1, 2)
             if len(pts) >= 4:
                 cv2.polylines(vis, [pts], True, (0, 255, 0), 2)
-        safe_name = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(name))
-        os.makedirs(self.detvis_save_dir, exist_ok=True)
-        cv2.imwrite(os.path.join(self.detvis_save_dir, f"{safe_name}.jpg"), vis)
+        return vis
 
     def _save_region_strip(self, name, regions):
-        if not self.detvis_save_dir or not regions:
-            return
-        valid = [region for region in regions if region is not None and region.size > 0]
-        if not valid:
-            return
-        target_h = max(region.shape[0] for region in valid)
-        pieces = []
-        for region in valid:
-            h, w = region.shape[:2]
-            scale = target_h / float(max(1, h))
-            resized = cv2.resize(region, (max(1, int(w * scale)), target_h))
-            pieces.append(resized)
-            pieces.append(np.full((target_h, 8, 3), 255, dtype=np.uint8))
-        strip = np.concatenate(pieces[:-1], axis=1)
-        safe_name = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(name))
-        os.makedirs(self.detvis_save_dir, exist_ok=True)
-        cv2.imwrite(os.path.join(self.detvis_save_dir, f"{safe_name}_rec_regions.jpg"), strip)
+        return
 
     def _add_infusion_percent_regions(self, image, regions, boxes):
         if image is None or image.size == 0:
@@ -459,6 +458,16 @@ class RknnOCRRecognizer:
             extract_kwargs["merge_kwargs"] = item.get("merge_kwargs")
         elif module is infusion_ocr:
             extract_kwargs["merge_kwargs"] = INFUSION_MERGE_KWARGS
+        if item.get("preserve_rotated_boxes") and module is tight_ocr:
+            extract_kwargs["preserve_rotated_boxes"] = True
+        if item.get("short_side_padding_ratio") is not None and module is tight_ocr:
+            extract_kwargs["short_side_padding_ratio"] = item["short_side_padding_ratio"]
+            extract_kwargs["min_short_side_padding"] = item.get("min_short_side_padding")
+            extract_kwargs["max_short_side_padding"] = item.get("max_short_side_padding")
+        if item.get("final_short_side_padding_ratio") is not None and module is tight_ocr:
+            extract_kwargs["final_short_side_padding_ratio"] = item["final_short_side_padding_ratio"]
+            extract_kwargs["final_min_short_side_padding"] = item.get("final_min_short_side_padding")
+            extract_kwargs["final_max_short_side_padding"] = item.get("final_max_short_side_padding")
 
         regions, boxes = module.extract_text_regions(
             item["image"],
@@ -475,6 +484,11 @@ class RknnOCRRecognizer:
             regions, boxes = self._add_infusion_percent_regions(item["image"], regions, boxes)
             owner_name = "_".join(str(part) for part in owner)
             self._save_detvis_image(f"{owner_name}_det_boxes_before_rec", item["image"], boxes)
+        elif isinstance(owner, tuple) and owner and owner[0] == "bottle":
+            owner_name = "_".join(str(part) for part in owner)
+            self._save_detvis_image(f"{owner_name}_det_boxes_before_rec", item["image"], boxes)
+            item["det_visualization"] = self._draw_det_boxes(item["image"], boxes)
+            item["det_region_count"] = len(regions)
 
         regions = [region for region in regions if region is not None and region.size > 0]
         split_rows = item.get("split_rows")
@@ -487,6 +501,10 @@ class RknnOCRRecognizer:
             regions = self._split_label_regions(regions)
         elif split_rows:
             regions = self._split_multiline_regions(regions)
+        if isinstance(owner, tuple) and owner and owner[0] == "bottle":
+            owner_name = "_".join(str(part) for part in owner)
+            self._save_region_strip(f"{owner_name}_final", regions)
+            item["det_region_count"] = len(regions)
         return item, regions
 
     def _preprocess_mixed_rec_item(self, args):
@@ -1217,6 +1235,14 @@ class RknnOCRRecognizer:
         c = max(contours, key=cv2.contourArea)
         x, y, w, h = cv2.boundingRect(c)
         img_h, img_w = image.shape[:2]
+        contour_area = cv2.contourArea(c)
+        image_area = max(1, img_w * img_h)
+        if (
+            contour_area < image_area * 0.012
+            or w < img_w * 0.14
+            or h < img_h * 0.035
+        ):
+            return None
         pad_x = max(14, int(w * 0.10), int(img_w * 0.018))
         pad_top = max(10, int(h * 0.16), int(img_h * 0.018))
         # The volume line may sit below the blue percentage badge, especially
@@ -1246,15 +1272,34 @@ class RknnOCRRecognizer:
         roi = image[y1:y2, x1:x2].copy()
         return roi if roi.size > 0 else None
 
+    def _append_infusion_candidate(self, candidates, name, roi):
+        if roi is None or roi.size <= 0:
+            return
+        height, width = roi.shape[:2]
+        if height < 24 or width < 40:
+            return
+        for _existing_name, existing_roi in candidates:
+            if existing_roi is None or existing_roi.size <= 0:
+                continue
+            eh, ew = existing_roi.shape[:2]
+            if abs(eh - height) <= 3 and abs(ew - width) <= 3:
+                return
+        candidates.append((name, roi))
+
     def _extract_infusion_candidate_rois(self, image):
-        """Return the usable infusion OCR ROI before CLS/DET/REC."""
+        """Return infusion OCR ROI candidates from an already orientation-corrected crop."""
         candidates = []
         if image is None or image.size == 0:
             return candidates
 
+        blue_wide = self._extract_infusion_blue_roi(image, wide=True)
+        if blue_wide is not None and blue_wide.size > 0:
+            self._append_infusion_candidate(candidates, "blue_wide", blue_wide)
+            self._save_debug_image("infusion_blue_wide_roi", blue_wide)
+
         blue = self._extract_infusion_blue_roi(image, wide=False)
         if blue is not None and blue.size > 0:
-            candidates.append(("blue", blue))
+            self._append_infusion_candidate(candidates, "blue", blue)
             self._save_debug_image("infusion_blue_roi", blue)
         return candidates
 
@@ -1377,48 +1422,20 @@ class RknnOCRRecognizer:
         return "".join(texts)
 
     def recognize(self, image, line_gap_threshold=20):
-        # Class 0: bottle, use Test_OCR_tight_lines.py det regions directly.
-        return self._recognize_profile(
-            image,
-            tight_ocr,
-            TIGHT_LINE_PADDING,
-            join_mode="concat",
-            split_rows=False,
-            angle_cls=True,
-        )
+        values = self.recognize_bottles_batch([image])
+        return values[0] if values else ""
 
     def recognize_bottles_batch(self, images):
-        start = time.perf_counter()
-        self.last_timing = {}
-        rotated_images, preds = self._classify_and_rotate_batch(images)
-        self.last_timing["angle_pred"] = float(sum(preds))
-        texts_list = self._recognize_candidates_batch(
-            rotated_images,
-            tight_ocr,
-            TIGHT_LINE_PADDING,
-            split_rows=False,
-        )
-
-        fallback_indices = []
-        for idx, (pred, texts) in enumerate(zip(preds, texts_list)):
-            if pred != 0 and self._score_medicine_texts(texts) < 12.0:
-                fallback_indices.append(idx)
-
-        if fallback_indices:
-            fallback_images = [images[idx] for idx in fallback_indices]
-            fallback_texts = self._recognize_candidates_batch(
-                fallback_images,
-                tight_ocr,
-                TIGHT_LINE_PADDING,
-                split_rows=False,
-                timing_prefix="fallback_",
-            )
-            for local_idx, original_idx in enumerate(fallback_indices):
-                if self._score_medicine_texts(fallback_texts[local_idx]) > self._score_medicine_texts(texts_list[original_idx]) + 1.0:
-                    texts_list[original_idx] = fallback_texts[local_idx]
-
-        self.last_timing["total"] = time.perf_counter() - start
-        return ["".join(texts) for texts in texts_list]
+        tasks = [
+            ("bottle", index, image)
+            for index, image in enumerate(images)
+            if image is not None and image.size > 0
+        ]
+        results = self.recognize_task_batch(tasks)
+        return [
+            results.get(("bottle", index), {}).get("text", "")
+            for index in range(len(images))
+        ]
 
     def recognize_yaodai(self, image, line_gap_threshold=20):
         # Class 1: bag/label, use Test_OCR_tight_lines.py tuned tight-line logic only.
@@ -1442,15 +1459,21 @@ class RknnOCRRecognizer:
         return text
 
     def recognize_shuyedai(self, image, line_gap_threshold=20):
-        # Class 2: infusion bag. First extract the blue text ROI from the
-        # YOLO crop, then correct that ROI with CLS before det/rec.
+        # Class 2: infusion bag. Correct the full YOLO crop with CLS first,
+        # then extract the label candidates from the corrected crop.
         start = time.perf_counter()
         self.last_timing = {}
         if image is None:
             return parse_required_fields(None)
 
+        t_cls = time.perf_counter()
+        rotated_images, preds = self._classify_and_rotate_batch([image], timing_prefix="shuye_")
+        rotated_image = rotated_images[0]
+        self.last_timing["shuye_angle_cls"] = time.perf_counter() - t_cls
+        self.last_timing["shuye_angle_pred"] = float(sum(preds))
+
         t_pre = time.perf_counter()
-        candidates = self._extract_infusion_candidate_rois(image)
+        candidates = self._extract_infusion_candidate_rois(rotated_image)
         self.last_timing["preprocess"] = time.perf_counter() - t_pre
         valid_candidates = [
             (name, roi)
@@ -1461,25 +1484,16 @@ class RknnOCRRecognizer:
             self.last_timing["total"] = time.perf_counter() - start
             return parse_required_fields(None)
 
-        t_cls = time.perf_counter()
-        rotated_rois, preds = self._classify_and_rotate_batch(
+        texts_list = self._recognize_candidates_batch(
             [roi for _name, roi in valid_candidates],
-            timing_prefix="shuye_roi_",
+            infusion_ocr,
+            INFUSION_PADDING,
+            split_rows=False,
         )
-        self.last_timing["shuye_roi_angle_cls"] = time.perf_counter() - t_cls
-        self.last_timing["shuye_roi_angle_pred"] = float(sum(preds))
 
         parsed_results = []
-        for cand_idx, ((name, _roi), rotated_roi) in enumerate(zip(valid_candidates, rotated_rois)):
-            self._save_debug_image(f"infusion_{name}_roi_{cand_idx}", rotated_roi)
-            texts = self._recognize_profile(
-                rotated_roi,
-                infusion_ocr,
-                INFUSION_PADDING,
-                join_mode="concat",
-                reset_timing=False,
-                return_texts=True,
-            )
+        for cand_idx, ((name, _roi), texts) in enumerate(zip(valid_candidates, texts_list)):
+            self.last_timing[f"candidate_{cand_idx}_{name}_texts"] = len(texts)
             self.last_timing[f"candidate_{cand_idx}_texts"] = len(texts)
             parsed_results.append(self._parse_infusion_texts(texts))
         self.last_timing["total"] = time.perf_counter() - start
@@ -1495,10 +1509,18 @@ class RknnOCRRecognizer:
         if not valid_image_pairs:
             return [parse_required_fields(None) for _ in images]
 
+        t_cls = time.perf_counter()
+        rotated_images, preds = self._classify_and_rotate_batch(
+            [image for _idx, image in valid_image_pairs],
+            timing_prefix="shuye_",
+        )
+        self.last_timing["shuye_angle_cls"] = time.perf_counter() - t_cls
+        self.last_timing["shuye_angle_pred"] = float(sum(preds))
+
         t_pre = time.perf_counter()
         candidate_entries = []
-        for idx, image in valid_image_pairs:
-            for name, roi in self._extract_infusion_candidate_rois(image):
+        for (idx, _image), rotated_image in zip(valid_image_pairs, rotated_images):
+            for name, roi in self._extract_infusion_candidate_rois(rotated_image):
                 candidate_entries.append((idx, name, roi))
         self.last_timing["preprocess"] = time.perf_counter() - t_pre
 
@@ -1506,16 +1528,8 @@ class RknnOCRRecognizer:
         if not valid_pairs:
             return [parse_required_fields(None) for _ in images]
 
-        t_cls = time.perf_counter()
-        rotated_rois, preds = self._classify_and_rotate_batch(
-            [roi for _idx, _name, roi in valid_pairs],
-            timing_prefix="shuye_roi_",
-        )
-        self.last_timing["shuye_roi_angle_cls"] = time.perf_counter() - t_cls
-        self.last_timing["shuye_roi_angle_pred"] = float(sum(preds))
-
         texts_list = self._recognize_candidates_batch(
-            rotated_rois,
+            [roi for _idx, _name, roi in valid_pairs],
             infusion_ocr,
             INFUSION_PADDING,
             split_rows=False,
@@ -1550,22 +1564,9 @@ class RknnOCRRecognizer:
             if crop is not None and crop.size > 0:
                 cls_entries.append({"owner": ("bag", idx), "image": crop})
 
-        shuye_candidate_entries = []
-        if shuye_tasks:
-            valid_shuye = [
-                (idx, crop)
-                for _, idx, crop in shuye_tasks
-                if crop is not None and crop.size > 0
-            ]
-            t_pre = time.perf_counter() if collect_timing else 0.0
-            for idx, crop in valid_shuye:
-                for roi_name, roi in self._extract_infusion_candidate_rois(crop):
-                    if roi is not None and roi.size > 0:
-                        shuye_candidate_entries.append((idx, roi_name, roi))
-                        cls_entries.append({"owner": ("shuye", idx, roi_name), "image": roi})
-            if collect_timing:
-                self.last_timing["shuye_preprocess"] = time.perf_counter() - t_pre
-                self.last_timing["shuye_candidate_rois"] = len(shuye_candidate_entries)
+        for _, idx, crop in shuye_tasks:
+            if crop is not None and crop.size > 0:
+                cls_entries.append({"owner": ("shuye", idx), "image": crop})
 
         cls_by_owner = {}
         if collect_timing:
@@ -1595,28 +1596,41 @@ class RknnOCRRecognizer:
                 if bag_tasks:
                     self.last_timing["bag_angle_cls"] = cls_elapsed
                     self.last_timing["bag_angle_pred"] = float(sum(bag_preds))
-                if shuye_candidate_entries:
-                    self.last_timing["shuye_roi_angle_cls"] = cls_elapsed
-                    self.last_timing["shuye_roi_angle_pred"] = float(sum(shuye_preds))
+                if shuye_tasks:
+                    self.last_timing["shuye_angle_cls"] = cls_elapsed
+                    self.last_timing["shuye_angle_pred"] = float(sum(shuye_preds))
 
+        bottle_candidates = {}
         for _, idx, crop in bottle_tasks:
             cls_item = cls_by_owner.get(("bottle", idx))
             if cls_item is None:
                 continue
-            mixed_candidates.append({
+            self._save_predet_image(f"bottle_{idx + 1}_after_cls", cls_item["rotated"])
+            candidate = {
                 "owner": ("bottle", idx),
                 "image": cls_item["rotated"],
                 "module": tight_ocr,
-                "padding": TIGHT_LINE_PADDING,
+                "padding": BOTTLE_LINE_PADDING,
                 "split_rows": False,
-            })
+                "preserve_rotated_boxes": True,
+                "final_short_side_padding_ratio": BOTTLE_LINE_PADDING["final_short_side_padding_ratio"],
+                "final_min_short_side_padding": BOTTLE_LINE_PADDING["final_min_short_side_padding"],
+                "final_max_short_side_padding": BOTTLE_LINE_PADDING["final_max_short_side_padding"],
+            }
+            bottle_candidates[idx] = candidate
+            mixed_candidates.append(candidate)
 
+        bag_name_owners = {}
         if bag_tasks:
             t_roi = time.perf_counter() if collect_timing else 0.0
-            roi_specs = (
+            card_roi_specs = (
                 (0.00, 0.00, 0.56, 0.45),
                 (0.00, 0.08, 0.60, 0.55),
                 (0.02, 0.00, 0.48, 0.35),
+            )
+            rotated_roi_specs = (
+                (0.00, 0.00, 0.68, 0.42),
+                (0.00, 0.00, 0.82, 0.58),
             )
             for _, idx, _crop in bag_tasks:
                 cls_item = cls_by_owner.get(("bag", idx))
@@ -1625,40 +1639,44 @@ class RknnOCRRecognizer:
                 rotated = cls_item["rotated"]
                 card = self._extract_label_card(rotated)
                 self._save_debug_image("label_card", card)
+
+                roi_idx = 0
+
+                def append_name_roi(raw_roi, debug_name, split_rows=True):
+                    nonlocal roi_idx
+                    if raw_roi is None or raw_roi.size <= 0:
+                        return
+                    roi = self._prepare_name_roi(raw_roi.copy())
+                    if roi is None or roi.size <= 0:
+                        return
+                    owner = ("bag_name", idx, roi_idx)
+                    roi_idx += 1
+                    bag_name_owners.setdefault(idx, []).append(owner)
+                    self._save_debug_image(debug_name, roi)
+                    mixed_candidates.append({
+                        "owner": owner,
+                        "image": roi,
+                        "module": tight_ocr,
+                        "padding": NAME_ROI_PADDING,
+                        "split_rows": split_rows,
+                    })
+
                 height, width = card.shape[:2]
-                for roi_idx, (x1r, y1r, x2r, y2r) in enumerate(roi_specs):
+                for x1r, y1r, x2r, y2r in card_roi_specs:
                     x1 = max(0, min(width - 1, int(width * x1r)))
                     y1 = max(0, min(height - 1, int(height * y1r)))
                     x2 = max(x1 + 1, min(width, int(width * x2r)))
                     y2 = max(y1 + 1, min(height, int(height * y2r)))
-                    roi = self._prepare_name_roi(card[y1:y2, x1:x2].copy())
-                    self._save_debug_image(f"label_name_roi_{roi_idx}", roi)
-                    mixed_candidates.append({
-                        "owner": ("bag_name", idx, roi_idx),
-                        "image": roi,
-                        "module": tight_ocr,
-                        "padding": NAME_ROI_PADDING,
-                        "split_rows": True,
-                    })
+                    append_name_roi(card[y1:y2, x1:x2], f"label_name_roi_{idx}_{roi_idx}")
+                append_name_roi(card, f"label_full_card_name_roi_{idx}_{roi_idx}")
+
                 rotated_h, rotated_w = rotated.shape[:2]
-                rotated_roi_specs = (
-                    (0.00, 0.00, 0.68, 0.42),
-                    (0.00, 0.00, 0.82, 0.58),
-                )
-                for local_idx, (x1r, y1r, x2r, y2r) in enumerate(rotated_roi_specs, start=len(roi_specs)):
+                for x1r, y1r, x2r, y2r in rotated_roi_specs:
                     x1 = max(0, min(rotated_w - 1, int(rotated_w * x1r)))
                     y1 = max(0, min(rotated_h - 1, int(rotated_h * y1r)))
                     x2 = max(x1 + 1, min(rotated_w, int(rotated_w * x2r)))
                     y2 = max(y1 + 1, min(rotated_h, int(rotated_h * y2r)))
-                    roi = self._prepare_name_roi(rotated[y1:y2, x1:x2].copy())
-                    self._save_debug_image(f"label_rotated_name_roi_{local_idx}", roi)
-                    mixed_candidates.append({
-                        "owner": ("bag_name", idx, local_idx),
-                        "image": roi,
-                        "module": tight_ocr,
-                        "padding": NAME_ROI_PADDING,
-                        "split_rows": True,
-                    })
+                    append_name_roi(rotated[y1:y2, x1:x2], f"label_rotated_name_roi_{idx}_{roi_idx}")
                 mixed_candidates.append({
                     "owner": ("bag_fallback", idx),
                     "image": rotated,
@@ -1669,22 +1687,36 @@ class RknnOCRRecognizer:
             if collect_timing:
                 self.last_timing["bag_name_roi_extract"] = time.perf_counter() - t_roi
 
-        for idx, roi_name, _roi in shuye_candidate_entries:
-            cls_item = cls_by_owner.get(("shuye", idx, roi_name))
-            if cls_item is None:
-                continue
-            rotated_roi = cls_item["rotated"]
-            self._save_predet_image(f"shuye_{idx + 1}_{roi_name}_before_det", rotated_roi)
-            mixed_candidates.append({
-                "owner": ("shuye", idx, roi_name),
-                "image": rotated_roi,
-                "module": infusion_ocr,
-                "padding": INFUSION_PADDING,
-                "split_rows": False,
-                "merge_boxes": True,
-                "filter_edge_boxes": True,
-                "merge_kwargs": INFUSION_MERGE_KWARGS,
-            })
+        shuye_roi_owners = {}
+        shuye_candidate_count = 0
+        if shuye_tasks:
+            t_pre = time.perf_counter() if collect_timing else 0.0
+            for _, idx, _crop in shuye_tasks:
+                cls_item = cls_by_owner.get(("shuye", idx))
+                if cls_item is None:
+                    continue
+                rotated_crop = cls_item["rotated"]
+                for roi_name, roi in self._extract_infusion_candidate_rois(rotated_crop):
+                    if roi is None or roi.size <= 0:
+                        continue
+                    owner_name = f"{roi_name}_{len(shuye_roi_owners.get(idx, []))}"
+                    owner = ("shuye", idx, owner_name)
+                    shuye_roi_owners.setdefault(idx, []).append(owner)
+                    shuye_candidate_count += 1
+                    self._save_predet_image(f"shuye_{idx + 1}_{owner_name}_before_det", roi)
+                    mixed_candidates.append({
+                        "owner": owner,
+                        "image": roi,
+                        "module": infusion_ocr,
+                        "padding": INFUSION_PADDING,
+                        "split_rows": False,
+                        "merge_boxes": True,
+                        "filter_edge_boxes": True,
+                        "merge_kwargs": INFUSION_MERGE_KWARGS,
+                    })
+            if collect_timing:
+                self.last_timing["shuye_preprocess"] = time.perf_counter() - t_pre
+                self.last_timing["shuye_candidate_rois"] = shuye_candidate_count
 
         if collect_timing:
             self.last_timing["shared_det_inputs"] = len(mixed_candidates)
@@ -1695,7 +1727,14 @@ class RknnOCRRecognizer:
         for _, idx, _crop in bottle_tasks:
             texts = texts_by_owner.get(("bottle", idx), [])
             cls_item = cls_by_owner.get(("bottle", idx))
-            result = {"text": "".join(texts), "timing": shared_timing}
+            candidate = bottle_candidates.get(idx, {})
+            result = {
+                "text": "".join(texts),
+                "timing": shared_timing,
+                "det_region_count": int(candidate.get("det_region_count", 0)),
+                "rec_nonempty_count": len(texts),
+                "det_visualization": candidate.get("det_visualization"),
+            }
             if cls_item is not None:
                 result["classify_image"] = cls_item["rotated"]
                 result["classify_image_already_rotated"] = True
@@ -1704,22 +1743,34 @@ class RknnOCRRecognizer:
 
         for _, idx, _crop in bag_tasks:
             cleaned = []
-            for roi_idx in range(5):
-                for text in texts_by_owner.get(("bag_name", idx, roi_idx), []):
+            for owner in bag_name_owners.get(idx, []):
+                for text in texts_by_owner.get(owner, []):
                     text = "".join(ch for ch in text if "\u4e00" <= ch <= "\u9fff")
                     if 2 <= len(text) <= 6:
                         cleaned.append(text[:4])
             fallback = texts_by_owner.get(("bag_fallback", idx), [])
             text = cleaned[0] if cleaned else (fallback[0] if fallback else "")
-            results[("bag", idx)] = {"text": text, "timing": shared_timing}
+            result = {
+                "text": text,
+                "timing": shared_timing,
+                "name_roi_count": len(bag_name_owners.get(idx, [])),
+            }
+            cls_item = cls_by_owner.get(("bag", idx))
+            if cls_item is not None:
+                result["classify_angle_pred"] = cls_item["pred"]
+            results[("bag", idx)] = result
 
         for _, idx, _crop in shuye_tasks:
             parsed_results = []
-            for roi_name in ("blue",):
-                texts = texts_by_owner.get(("shuye", idx, roi_name), [])
+            for owner in shuye_roi_owners.get(idx, []):
+                texts = texts_by_owner.get(owner, [])
                 parsed_results.append(self._parse_infusion_texts(texts))
             value = self._merge_infusion_field_results(parsed_results)
-            results[("shuye", idx)] = {"text": value, "timing": shared_timing}
+            results[("shuye", idx)] = {
+                "text": value,
+                "timing": shared_timing,
+                "candidate_roi_count": len(shuye_roi_owners.get(idx, [])),
+            }
 
         self.last_timing = {"batch_total": time.perf_counter() - start} if collect_timing else {}
         return results

@@ -3,6 +3,11 @@ project:
 
 runtime:
   trigger_interval: 5
+  trigger_mode: manual
+  basket_area_threshold: 0.40
+  basket_sharpness_threshold: 55
+  basket_capture_timeout: 10.0
+  basket_resume_delay: 1.0
 
 crop_region:  # 识别区域
   x_min: 640
@@ -21,9 +26,14 @@ model: # unetformer模型配置
   num_classes: 4
   checkpoint_path: "./model/best_model_0329_2.pt"
   yolo_path : "./model/best_yolo.pt"
+  yolo_rknn_path: "./model_yolo_0602.rknn"
+  yolo_input_size: 640
+  basket_rknn_path: "./model_bask_0609_n.rknn"
+  # This RKNN has a fixed 640x640 input and an 8400-candidate YOLO head.
+  basket_input_size: 640
 
 segmentor: # 处理（关键性能参数）
-  tile_size: 1024
+  tile_size: 640
   overlap: 16  # 减小overlap提升速度
   target_fps: 6
   batch_frames: 1  # 🔥 批量处理帧数（根据显存调整：2-4）

@@ -679,7 +679,8 @@ def _normalize_liquid_name(text):
 
 
 def _normalize_volume_value(number_text):
-    text = _format_number_text(number_text)
+    text = number_text.strip().replace("O", "0").replace("o", "0")
+    text = _format_number_text(text)
     digits = text.replace(".", "")
     if digits.endswith("100"):
         return "100ml"
@@ -696,6 +697,7 @@ def _normalize_infusion_parse_text(text):
     text = text.replace("\u2018", "").replace("\u2019", "")
     text = text.replace("\u3010", "").replace("\u3011", "")
     text = text.replace("\uff08", "").replace("\uff09", "")
+    text = re.sub(r'(?i)(\d)[oO]\s*(?:ml|m1|m|l)(?![a-z0-9])', r'\g<1>0ml', text)
     return text
 
 
@@ -727,10 +729,31 @@ def _extract_concentration_from_text(text):
         value = _normalize_concentration_value(m.group(1))
         if value:
             candidates.append(value)
+    if candidates == ["0.9%"]:
+        return candidates[0], "explicit_percent"
+    if any(value == "10%" for value in candidates):
+        return "10%", "explicit_percent"
+    if (
+        candidates == ["0.9%"]
+        or candidates == ["5%"]
+        or candidates == ["10%"]
+    ):
+        return candidates[0], "explicit_percent"
+    if (
+        candidates == ["0.9%", "10%"]
+        or candidates == ["10%", "0.9%"]
+    ):
+        return "10%", "explicit_percent"
     if candidates:
         return candidates[0], "explicit_percent"
 
     compact = re.sub(r'\s+', '', text)
+    if (
+        ("100ml" in compact.lower() or "100m1" in compact.lower())
+        and re.search(r'(?<![\d.])0\s*[%\uff05]', compact)
+        and _normalize_liquid_name(compact)
+    ):
+        return "10%", "ocr_lost_leading_one"
     for value in ("0.9", "10", "5"):
         if re.search(rf'(?<!\d){re.escape(value)}(?!\d)', compact):
             normalized = _normalize_concentration_value(value)
@@ -829,6 +852,15 @@ def parse_required_fields(result):
 
     raw_text_joined = " ".join(raw_texts)
     if (
+        concentration is None
+        and liquid == "\u8461\u8404\u7cd6\u6ce8\u5c04\u6db2"
+        and volume == "50ml"
+        and re.search(r'(?i)(?<!\d)5[oO]\s*(?:ml|m1|m|l)(?![a-z0-9])', raw_text_joined)
+    ):
+        concentration = "5%"
+        concentration_source = "ocr_percent_volume_joined"
+
+    if (
         concentration == "0.9%"
         and concentration_source == "inferred_number"
         and liquid
@@ -873,8 +905,7 @@ def visualize_detection(img, boxes, save_path='det_result.jpg'):
         # 标注序号
         cv2.putText(vis_img, str(i), tuple(box_int[0]),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-    cv2.imwrite(save_path, vis_img)
-    print(f"检测可视化结果已保存到: {save_path}")
+    return vis_img
 
 
 def debug_single_image(det_model, rec_model, char_dict, img_path):
