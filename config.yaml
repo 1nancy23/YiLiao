@@ -6,6 +6,7 @@ runtime:
   trigger_mode: manual
   basket_area_threshold: 0.40
   basket_sharpness_threshold: 55
+  basket_stable_frames: 6
   basket_capture_timeout: 10.0
   basket_resume_delay: 1.0
 
@@ -26,7 +27,7 @@ model: # unetformer模型配置
   num_classes: 4
   checkpoint_path: "./model/best_model_0329_2.pt"
   yolo_path : "./model/best_yolo.pt"
-  yolo_rknn_path: "./model_yolo_0602.rknn"
+  yolo_rknn_path: "./model_yolo_0615.rknn"
   yolo_input_size: 640
   basket_rknn_path: "./model_bask_0609_n.rknn"
   # This RKNN has a fixed 640x640 input and an 8400-candidate YOLO head.

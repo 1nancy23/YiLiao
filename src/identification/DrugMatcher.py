@@ -104,27 +104,31 @@ class DrugMatcher:
         )
         if any(term in compact for term in non_drug_terms):
             return True
-        if re.search(r"\d{1,3}床", compact):
+        if cls._RE_NON_DRUG.search(compact):
             return True
         digits = re.findall(r"\d", compact)
         chinese = re.findall(r"[\u4e00-\u9fff]", compact)
         return len(digits) >= 8 and len(digits) >= len(chinese)
 
-    @staticmethod
-    def _normalize_ocr_for_drugs(text: str) -> str:
+    _REPLACEMENTS = [
+        ("曲鬆", "曲松"), ("曲忪", "曲松"), ("他定", "他啶"), ("他咤", "他啶"),
+        ("唑林", "唑啉"), ("坐啉", "唑啉"), ("泮托拉坐", "泮托拉唑"),
+        ("奥美拉坐", "奥美拉唑"), ("拉美拉坐", "拉美拉唑"),
+        ("干扰索", "干扰素"), ("免疫求", "免疫球"), ("蛋自", "蛋白"),
+        ("破仿风", "破伤风"), ("血小版", "血小板"),
+        ("头抱", "头孢"), ("头胞", "头孢"), ("舒巴坦纳", "舒巴坦钠"),
+        ("哌铜", "哌酮"), ("曲松纳", "曲松钠"), ("他啶纳", "他啶钠"),
+        ("A2A", "a2a"), ("A2B", "a2b"), ("２", "2"), ("１", "1"),
+        ("（", "("), ("）", ")"), ("：", ":"),
+    ]
+    _RE_NON_DRUG = re.compile(r"\d{1,3}床")
+    _RE_A2A = re.compile(r"a?2a")
+    _RE_A2B = re.compile(r"a?2b")
+
+    @classmethod
+    def _normalize_ocr_for_drugs(cls, text: str) -> str:
         text = str(text or "").replace(" ", "")
-        replacements = {
-            "曲鬆": "曲松", "曲忪": "曲松", "他定": "他啶", "他咤": "他啶",
-            "唑林": "唑啉", "坐啉": "唑啉", "泮托拉坐": "泮托拉唑",
-            "奥美拉坐": "奥美拉唑", "拉美拉坐": "拉美拉唑",
-            "干扰索": "干扰素", "免疫求": "免疫球", "蛋自": "蛋白",
-            "破仿风": "破伤风", "血小版": "血小板",
-            "头抱": "头孢", "头胞": "头孢", "舒巴坦纳": "舒巴坦钠",
-            "哌铜": "哌酮", "曲松纳": "曲松钠", "他啶纳": "他啶钠",
-            "A2A": "a2a", "A2B": "a2b", "２": "2", "１": "1",
-            "（": "(", "）": ")", "：": ":",
-        }
-        for src, dst in replacements.items():
+        for src, dst in cls._REPLACEMENTS:
             text = text.replace(src, dst)
         return text.lower()
 
@@ -169,13 +173,13 @@ class DrugMatcher:
             alias_score = sum(max(2, len(alias)) * 16 for alias in alias_hits)
             fuzzy_score = max(partial, ratio, token)
             score = fuzzy_score + term_score + alias_score
-            if record["has_a2a"] and re.search(r"a?2a", clean_query):
+            if record["has_a2a"] and self._RE_A2A.search(clean_query):
                 score += 80
-            if record["has_a2b"] and re.search(r"a?2b", clean_query):
+            if record["has_a2b"] and self._RE_A2B.search(clean_query):
                 score += 80
-            if record["has_a2a"] and re.search(r"a?2b", clean_query):
+            if record["has_a2a"] and self._RE_A2B.search(clean_query):
                 score -= 60
-            if record["has_a2b"] and re.search(r"a?2a", clean_query):
+            if record["has_a2b"] and self._RE_A2A.search(clean_query):
                 score -= 60
             for target, aliases in self._drug_alias_rules:
                 if target in clean_name and any(alias.lower() in lower_query for alias in aliases):

@@ -322,6 +322,8 @@ class NativeRuntime:
             "last_result_at": None,
             "last_error": None,
             "trigger_count": 0,
+            "basket_stable_frames": 0,
+            "basket_stable_required": 6,
         }
 
     def start(self):
@@ -398,7 +400,7 @@ class NativeRuntime:
             if is_auto_trigger and not self._auto_trigger_active:
                 self.status["trigger_count"] = int(self.status.get("trigger_count", 0)) + 1
                 auto_trigger_started = True
-            self._auto_trigger_active = is_auto_trigger
+            self._auto_trigger_active = bool(data.get("processing")) and (self._auto_trigger_active or is_auto_trigger)
             self.status.update(jsonable(data))
             status = dict(self.status)
             status["thread_alive"] = bool(self.thread and self.thread.is_alive())
@@ -408,6 +410,8 @@ class NativeRuntime:
                 "trigger_count": status.get("trigger_count", 0),
                 "basket_area_ratio": status.get("basket_area_ratio", 0.0),
                 "basket_sharpness": status.get("basket_sharpness", 0.0),
+                "basket_stable_frames": status.get("basket_stable_frames", 0),
+                "basket_stable_required": status.get("basket_stable_required", 6),
             })
 
     def update_result(self, payload):
@@ -454,7 +458,11 @@ class NativeRuntime:
             with open(os.path.join(PROJECT_ROOT, "config.yaml"), "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f)
             runtime_config = config.get("runtime", {}) or {}
-            self.set_trigger_mode(runtime_config.get("trigger_mode", "manual"))
+            startup_trigger_mode = os.environ.get(
+                "YILIAO_TRIGGER_MODE",
+                runtime_config.get("trigger_mode", "manual"),
+            )
+            self.set_trigger_mode(startup_trigger_mode)
             recognition_workers = int(os.environ.get(
                 "YILIAO_RECOGNITION_WORKERS",
                 runtime_config.get("recognition_workers", 1),
@@ -521,12 +529,13 @@ class NativeRuntime:
                 output_path=config["saving"]["output_path"],
                 save_fps=config["saving"]["save_fps"],
                 device="npu",
-                yolo_model_path=config["model"].get("yolo_rknn_path", "./model_yolo_0602.rknn"),
+                yolo_model_path=config["model"].get("yolo_rknn_path", "./model_yolo_0615.rknn"),
                 yolo_input_size=int(config["model"].get("yolo_input_size", 640)),
                 basket_model_path=config["model"].get("basket_rknn_path", "./model_bask_0609_n.rknn"),
                 basket_input_size=int(config["model"].get("basket_input_size", 640)),
                 basket_area_threshold=float(runtime_config.get("basket_area_threshold", 0.40)),
                 basket_sharpness_threshold=float(runtime_config.get("basket_sharpness_threshold", 55.0)),
+                basket_stable_frames=int(runtime_config.get("basket_stable_frames", 6)),
                 basket_capture_timeout=float(runtime_config.get("basket_capture_timeout", 10.0)),
                 basket_resume_delay=float(runtime_config.get("basket_resume_delay", 1.0)),
                 trigger_interval=999999.0,
@@ -534,7 +543,7 @@ class NativeRuntime:
                 classifier_thread_safe=False,
                 quiet_ocr=quiet_ocr,
                 headless=True,
-                trigger_mode=runtime_config.get("trigger_mode", "manual"),
+                trigger_mode=startup_trigger_mode,
                 trigger_mode_getter=self.get_trigger_mode,
                 manual_trigger_event=self.trigger_event,
                 stop_event=self.stop_event,
@@ -578,13 +587,18 @@ class NativeRuntime:
 
 
 class NativeRecognitionApp:
-    def __init__(self, autostart=True):
+    def __init__(self, autostart=True, result_only=False, show_auto_popup=True, initial_mode=None, fullscreen=False):
         self.window_name = "YiLiao Native Recognition"
         self.detection_window_name = "Basket Realtime Detection"
         self.trigger_popup_window_name = "Automatic Trigger"
         self.bottle_window_name = "Bottle OCR Text Regions"
+        self.result_only = bool(result_only)
+        self.show_auto_popup = bool(show_auto_popup)
+        self.fullscreen = bool(fullscreen)
         self.events = queue.Queue()
         self.runtime = NativeRuntime(self.events)
+        if initial_mode:
+            self.runtime.set_trigger_mode(initial_mode)
         self.status = dict(self.runtime.status)
         self.sidebar_rect = (18, 76, 306, UI_HEIGHT - 22)
         self.result_rect = (324, 76, UI_WIDTH - 18, UI_HEIGHT - 22)
@@ -600,14 +614,19 @@ class NativeRecognitionApp:
         self.trigger_popup_until = 0.0
         self.set_result_text("检测线程正在启动...\n等待状态变为运行中后点击触发识别。")
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(self.window_name, UI_WIDTH, UI_HEIGHT)
-        cv2.namedWindow(self.detection_window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(self.detection_window_name, UI_WIDTH, UI_HEIGHT)
-        cv2.namedWindow(self.bottle_window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(self.bottle_window_name, UI_WIDTH, UI_HEIGHT)
+        if self.fullscreen:
+            cv2.setWindowProperty(self.window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+        else:
+            cv2.resizeWindow(self.window_name, UI_WIDTH, UI_HEIGHT)
+        if not self.result_only:
+            cv2.namedWindow(self.detection_window_name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(self.detection_window_name, UI_WIDTH, UI_HEIGHT)
+            cv2.namedWindow(self.bottle_window_name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(self.bottle_window_name, UI_WIDTH, UI_HEIGHT)
         cv2.imshow(self.window_name, self.render())
-        cv2.imshow(self.detection_window_name, np.zeros((UI_HEIGHT, UI_WIDTH, 3), dtype=np.uint8))
-        cv2.imshow(self.bottle_window_name, np.zeros((UI_HEIGHT, UI_WIDTH, 3), dtype=np.uint8))
+        if not self.result_only:
+            cv2.imshow(self.detection_window_name, np.zeros((UI_HEIGHT, UI_WIDTH, 3), dtype=np.uint8))
+            cv2.imshow(self.bottle_window_name, np.zeros((UI_HEIGHT, UI_WIDTH, 3), dtype=np.uint8))
         cv2.waitKey(1)
         cv2.setMouseCallback(self.window_name, self.on_mouse)
         if autostart:
@@ -617,12 +636,13 @@ class NativeRecognitionApp:
         while self.running:
             self.drain_events()
             cv2.imshow(self.window_name, self.render())
-            detection_frame = self.runtime.snapshot_detection_frame()
-            if detection_frame is not None:
-                cv2.imshow(self.detection_window_name, detection_frame)
-            bottle_frame = self.runtime.snapshot_bottle_frame()
-            if bottle_frame is not None:
-                cv2.imshow(self.bottle_window_name, bottle_frame)
+            if not self.result_only:
+                detection_frame = self.runtime.snapshot_detection_frame()
+                if detection_frame is not None:
+                    cv2.imshow(self.detection_window_name, detection_frame)
+                bottle_frame = self.runtime.snapshot_bottle_frame()
+                if bottle_frame is not None:
+                    cv2.imshow(self.bottle_window_name, bottle_frame)
             if self.trigger_popup_until and time.time() >= self.trigger_popup_until:
                 try:
                     cv2.destroyWindow(self.trigger_popup_window_name)
@@ -682,7 +702,7 @@ class NativeRecognitionApp:
                     self.dirty = True
                 elif event_type == "result":
                     self.set_result_text(format_result(data))
-                elif event_type == "auto_trigger":
+                elif event_type == "auto_trigger" and self.show_auto_popup:
                     self.show_auto_trigger_popup(data)
                 elif event_type == "error":
                     self.set_result_text(data)
@@ -700,6 +720,7 @@ class NativeRecognitionApp:
             f"第 {int(data.get('trigger_count', 0))} 次触发  |  "
             f"面积 {float(data.get('basket_area_ratio', 0.0)):.1%}  |  "
             f"清晰度 {float(data.get('basket_sharpness', 0.0)):.0f}  |  "
+            f"静止帧 {int(data.get('basket_stable_frames', 0))}/{int(data.get('basket_stable_required', 6))}  |  "
             "等待完成后开始识别"
         )
         draw.text((34, 142), detail, font=get_font(16), fill=(37, 99, 235))
@@ -770,7 +791,8 @@ class NativeRecognitionApp:
             ("Mode", self.status.get("trigger_mode", "manual"), (37, 99, 235)),
             ("Basket area", f"{float(self.status.get('basket_area_ratio') or 0.0) * 100:.1f}%", (30, 64, 175)),
             ("Sharpness", f"{float(self.status.get('basket_sharpness') or 0.0):.0f}", (30, 64, 175)),
-            ("Capture", str(int(self.status.get("basket_capture_count") or 0)), (30, 64, 175)),
+            ("Stable", f"{int(self.status.get('basket_stable_frames') or 0)}/{int(self.status.get('basket_stable_required') or 6)}", (30, 64, 175)),
+            ("Capture", f"{int(self.status.get('basket_capture_count') or 0)}/{int(self.status.get('basket_capture_required') or 0)}", (30, 64, 175)),
             ("状态", self.state_label(state), self.state_color(state)),
             ("处理中", processing, (217, 119, 6) if processing == "是" else (22, 163, 74)),
             ("帧数", str(self.status.get("frame_count", 0)), (30, 64, 175)),
@@ -888,8 +910,21 @@ class NativeRecognitionApp:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-autostart", action="store_true", help="open UI without starting detection thread")
+    parser.add_argument("--auto", action="store_true", help="start in automatic trigger mode")
+    parser.add_argument("--result-only", action="store_true", help="show only the result/control window")
+    parser.add_argument("--no-trigger-popup", action="store_true", help="disable automatic trigger popup")
+    parser.add_argument("--fullscreen", action="store_true", help="open main window in fullscreen mode")
     args = parser.parse_args()
-    app = NativeRecognitionApp(autostart=not args.no_autostart)
+    initial_mode = "auto" if args.auto else None
+    if initial_mode:
+        os.environ["YILIAO_TRIGGER_MODE"] = initial_mode
+    app = NativeRecognitionApp(
+        autostart=not args.no_autostart,
+        result_only=args.result_only,
+        show_auto_popup=not args.no_trigger_popup,
+        initial_mode=initial_mode,
+        fullscreen=args.fullscreen,
+    )
     app.run()
 
 

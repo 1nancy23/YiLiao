@@ -303,7 +303,8 @@ def run(args):
     processor = YOLOTileProcessor(
         model_path=args.yolo_model,
         device="npu",
-        tile_size=640,
+        tile_size=args.yolo_input_size,
+        input_size=args.yolo_input_size,
         overlap=0,
         conf_thres=args.conf,
         iou_thres=args.iou,
@@ -420,7 +421,8 @@ def run(args):
 def build_parser():
     parser = argparse.ArgumentParser(description="Run offline YOLO + OCR recognition on one image.")
     parser.add_argument("image", help="input image path")
-    parser.add_argument("--yolo-model", default=str(ROOT_DIR / "model_yolo_0510.rknn"))
+    parser.add_argument("--yolo-model", default=str(ROOT_DIR / "model_yolo_0615.rknn"))
+    parser.add_argument("--yolo-input-size", type=int, default=640)
     parser.add_argument("--ocr-det-model", default=str(ROOT_DIR / "src" / "identification" / "Det_bs1.rknn"))
     parser.add_argument("--ocr-rec-model", default=str(ROOT_DIR / "src" / "identification" / "Rec_bs16.rknn"))
     parser.add_argument("--ocr-dict", default=str(ROOT_DIR / "OCRS.txt"))

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=药品识别自动结果页
+Comment=开机自动启动药品识别自动触发流程，仅显示最终结果页面
+Exec=/home/forlinx/start_yiliao_auto_result.sh
+Path=/home/forlinx/Models/AnotherYiliao/shibie/YiLiaoShiBie_0521/YiLiaoShiBie
+Terminal=false
+StartupNotify=false
+Categories=Utility;

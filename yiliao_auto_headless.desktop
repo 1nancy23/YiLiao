@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=药品识别自动触发后台
+Comment=开机自动启动药品识别自动触发后台流程，不弹出可视化窗口
+Exec=/home/forlinx/start_yiliao_auto_headless.sh
+Path=/home/forlinx/Models/AnotherYiliao/shibie/YiLiaoShiBie_0521/YiLiaoShiBie
+Terminal=false
+StartupNotify=false
+Categories=Utility;

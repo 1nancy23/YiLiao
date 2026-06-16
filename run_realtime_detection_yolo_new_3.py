@@ -912,6 +912,29 @@ def _looks_like_bag_ocr_text(text):
     return False
 
 
+def normalize_camera_frame_bgr(img):
+    img = img.copy()
+
+    b, g, r = cv2.split(img.astype(np.float32))
+    mean_b, mean_g, mean_r = b.mean(), g.mean(), r.mean()
+    mean_gray = (mean_b + mean_g + mean_r) / 3.0
+    b *= mean_gray / (mean_b + 1e-6)
+    g *= mean_gray / (mean_g + 1e-6)
+    r *= mean_gray / (mean_r + 1e-6)
+    img = cv2.merge([b, g, r])
+    img = np.clip(img, 0, 255).astype(np.uint8)
+
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    l = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(l)
+    img = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
+
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    h, s, v = cv2.split(hsv)
+    v = np.minimum(v, 245).astype(np.uint8)
+    return cv2.cvtColor(cv2.merge([h, s, v]), cv2.COLOR_HSV2BGR)
+
+
 def run_realtime_detection(
         username="admin",
         password="a1b2c3d4",
@@ -953,12 +976,13 @@ def run_realtime_detection(
         status_callback=None,
         result_callback=None,
         frame_callback=None,
-        yolo_model_path="./model_yolo_0602.rknn",
+        yolo_model_path="./model_yolo_0615.rknn",
         yolo_input_size=640,
         basket_model_path="./model_bask_0609_n.rknn",
         basket_input_size=640,
         basket_area_threshold=0.40,
         basket_sharpness_threshold=55.0,
+        basket_stable_frames=6,
         basket_capture_timeout=10.0,
         basket_resume_delay=1.0,
 ):
@@ -1088,8 +1112,8 @@ def run_realtime_detection(
         batch_size=1,
         contain_thres=0.92,
         class_conf_thres={
-            0: 0.45,
-            1: 0.38,
+            0: 0.35,
+            1: 0.25,
             2: 0.32,
         },
         class_iou_thres={
@@ -1106,6 +1130,7 @@ def run_realtime_detection(
             input_size=basket_input_size,
             area_threshold=basket_area_threshold,
             sharpness_threshold=basket_sharpness_threshold,
+            stable_frames_required=basket_stable_frames,
         )
 
     # ============================================================
@@ -1150,9 +1175,6 @@ def run_realtime_detection(
     last_trigger_time = time.time()
     basket_resume_at = [0.0]
     last_basket_status = {}
-    auto_capture_pending = False
-    auto_capture_started_at = 0.0
-    auto_trigger_sequence = 0
 
     print("\n" + "=" * 60)
     print("🚀 实时目标检测已启动 YOLOv8 + 切片处理")
@@ -1464,7 +1486,7 @@ def run_realtime_detection(
     # 后台处理主函数
     # ============================================================
 
-    def process_batch_in_background(snapshot_frames, snapshot_predictions, keep_payload=False, skip_ocr=False):
+    def process_batch_in_background(snapshot_frames, snapshot_predictions, keep_payload=False, save_source_frame=False):
         """
         后台线程处理流程：
         1. 选择最清晰帧
@@ -1494,6 +1516,8 @@ def run_realtime_detection(
                     return (0, -1.0)
                 return (len(valid_scores), sum(valid_scores) / len(valid_scores))
 
+            # Iterate newest frames first; exit early once every category
+            # has a sharp crop, avoiding Laplacian on all cached frames.
             best_position = None
             best_frame_score = (-1, -1.0)
             best_bag_crops = None
@@ -1502,12 +1526,17 @@ def run_realtime_detection(
             best_bottle_score = (0, -1.0)
             best_shuye_crops = None
             best_shuye_score = (0, -1.0)
+            all_pairs = []
             for candidate_batch_idx, (candidate_frames, candidate_predictions) in enumerate(
                 zip(snapshot_frames, snapshot_predictions)
             ):
                 for candidate_frame_idx, (candidate_frame, candidate_detections) in enumerate(
                     zip(candidate_frames, candidate_predictions)
                 ):
+                    all_pairs.append((candidate_batch_idx, candidate_frame_idx, candidate_frame, candidate_detections))
+            # Reverse: newest frames first
+            all_pairs.reverse()
+            for candidate_batch_idx, candidate_frame_idx, candidate_frame, candidate_detections in all_pairs:
                     candidate_bags, candidate_bottles, candidate_shuyes = processor.crop_by_class(
                         candidate_frame,
                         candidate_detections,
@@ -1534,6 +1563,10 @@ def run_realtime_detection(
                     if frame_score > best_frame_score:
                         best_frame_score = frame_score
                         best_position = (candidate_batch_idx, candidate_frame_idx)
+                    # Early exit: every tracked category has at least one sharp crop
+                    if (best_bag_score[0] > 0 and best_bottle_score[0] > 0 and best_shuye_score[0] > 0
+                            and best_bag_score[1] >= 80.0 and best_bottle_score[1] >= 60.0):
+                        break
 
             if best_position is not None:
                 frame_pos = best_position
@@ -1554,7 +1587,26 @@ def run_realtime_detection(
                 f"中的第 {frame_idx + 1} 张"
             )
 
-            detections = snapshot_predictions[batch_idx][frame_idx]
+            detections = []
+
+            if save_source_frame:
+                source_dir = os.path.join(os.getcwd(), "AutoTrigger_Source_Frames")
+                os.makedirs(source_dir, exist_ok=True)
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                millis = int((time.time() % 1.0) * 1000)
+                source_path = os.path.join(
+                    source_dir,
+                    f"auto_trigger_{timestamp}_{millis:03d}_batch{batch_idx + 1}_frame{frame_idx + 1}.jpg",
+                )
+                cv2.imwrite(source_path, best_frame)
+                print(f"[Auto Trigger Source Frame] saved: {source_path}")
+
+            recognition_frame = normalize_camera_frame_bgr(best_frame)
+            _, recognition_predictions = processor.process_frames_batch(
+                [recognition_frame],
+                output_type="raw",
+            )
+            detections = recognition_predictions[0] if recognition_predictions else []
 
             # ====================================================
             # 裁剪药袋、药瓶、输液袋
@@ -1562,18 +1614,12 @@ def run_realtime_detection(
 
             t_crop_start = time.time()
             cropped_bags, cropped_bottles, cropped_shuyes = processor.crop_by_class(
-                best_frame,
+                recognition_frame,
                 detections,
                 bag_class_id=1,
                 bottle_class_id=0,
                 shuye_class_id=2,
             )
-            if best_bag_crops is not None:
-                cropped_bags = best_bag_crops
-            if best_bottle_crops is not None:
-                cropped_bottles = best_bottle_crops
-            if best_shuye_crops is not None:
-                cropped_shuyes = best_shuye_crops
             t_crop_done = time.time()
 
             print(
@@ -1615,82 +1661,6 @@ def run_realtime_detection(
             if not all_tasks:
                 print("未检测到任何目标")
                 return
-
-            if skip_ocr:
-                empty_bottles = [
-                    {
-                        "index": i + 1,
-                        "ocr_text": "",
-                        "candidates": [],
-                        "final_medicine": None,
-                        "confidence": None,
-                        "classification_method": "",
-                        "top_3": [],
-                        "decision_reason": "",
-                        "status": "auto_ocr_skipped",
-                        "ocr_empty_reason": "",
-                        "det_region_count": 0,
-                        "rec_nonempty_count": 0,
-                    }
-                    for i, _ in enumerate(cropped_bottles)
-                ]
-                empty_bags = [
-                    {
-                        "index": i + 1,
-                        "ocr_text": "",
-                        "patient_name": None,
-                        "patient_candidates": [],
-                        "status": "auto_ocr_skipped",
-                    }
-                    for i, _ in enumerate(cropped_bags)
-                ]
-                empty_infusions = [
-                    {
-                        "index": i,
-                        "liquid": None,
-                        "concentration": None,
-                        "volume": None,
-                        "raw_text": "",
-                        "status": "auto_ocr_skipped",
-                    }
-                    for i, _ in enumerate(cropped_shuyes)
-                ]
-                background_payload = {
-                    "timing_sec": {
-                        "total": round(time.time() - t_start, 6),
-                        "recognition": 0.0,
-                    },
-                    "bottles": empty_bottles,
-                    "bags": empty_bags,
-                    "infusions": empty_infusions,
-                    "recognized_medicines": [],
-                    "patient_name": None,
-                    "patient_names": [],
-                    "database_match": {
-                        "status": "skipped",
-                        "message": "auto trigger OCR disabled",
-                        "batch_id": None,
-                        "validation": None,
-                    },
-                    "structured_infusions": empty_infusions,
-                    "counts": {
-                        "bottle": len(cropped_bottles),
-                        "bag": len(cropped_bags),
-                        "shuye": len(cropped_shuyes),
-                        "total": len(all_tasks),
-                    },
-                }
-                emit_result(background_payload)
-                del all_tasks
-                del best_frame
-                del detections
-                del snapshot_frames
-                del snapshot_predictions
-                del cropped_bottles
-                del cropped_bags
-                del cropped_shuyes
-                gc.collect()
-                return background_payload
 
             print(f"\n{'=' * 60}")
             print(
@@ -2042,6 +2012,7 @@ def run_realtime_detection(
             # 释放大对象
             del all_tasks
             del best_frame
+            del recognition_frame
             del detections
             del snapshot_frames
             del snapshot_predictions
@@ -2135,16 +2106,11 @@ def run_realtime_detection(
             process_start = time.time()
             active_trigger_mode = current_trigger_mode()
 
-            # 自动模式监控阶段只运行篮子检测。触发后固定等待五秒，
-            # 再用五秒结束时的当前帧运行药品 YOLO 和全部后续识别。
-            if active_trigger_mode == "auto":
-                result_frames = frames
-                predictions = [[] for _ in frames]
-            else:
-                result_frames, predictions = processor.process_frames_batch(
-                    frames,
-                    output_type=(output_types[current_type_idx] if render_detection_frames else "raw")
-                )
+            # 自动模式和手动模式均持续运行药品 YOLO，保持缓存一致。
+            result_frames, predictions = processor.process_frames_batch(
+                frames,
+                output_type=(output_types[current_type_idx] if render_detection_frames else "raw")
+            )
 
             process_time = time.time() - process_start
             if verbose_runtime:
@@ -2155,10 +2121,9 @@ def run_realtime_detection(
                     "fps": len(frames) / max(process_time, 0.001),
                 })
 
-            # 缓存最近批次
-            if active_trigger_mode != "auto":
-                n_batch_frames.append(frames)
-                n_batch_predictions.append(predictions)
+            # 缓存最近批次（自动和手动模式均缓存）
+            n_batch_frames.append(frames)
+            n_batch_predictions.append(predictions)
 
             # ====================================================
             # 定时触发后台 OCR + 匹配 + 分类
@@ -2175,49 +2140,27 @@ def run_realtime_detection(
                 and current_time >= basket_resume_at[0]
             )
             if active_trigger_mode == "manual":
-                auto_capture_pending = False
-                auto_capture_started_at = 0.0
-                if basket_trigger is not None:
-                    if basket_monitoring:
-                        last_basket_status = basket_trigger.update(frames[-1])
-                    basket_trigger.reset_tracking()
+                # Manual mode: skip basket NPU inference entirely — no auto-trigger needed
+                last_basket_status = {}
                 if manual_trigger_event is not None and manual_trigger_event.is_set():
                     manual_trigger_event.clear()
                     should_trigger = True
                     trigger_label = "manual"
-            elif (
-                basket_trigger is not None
-                and not is_processing.is_set()
-                and current_time >= basket_resume_at[0]
-            ):
-                last_basket_status = basket_trigger.update(frames[-1])
-                if last_basket_status.get("triggered"):
-                    auto_trigger_sequence += 1
-                    auto_capture_pending = True
-                    auto_capture_started_at = current_time
-
-                if auto_capture_pending:
-                    capture_timed_out = (
-                        current_time - auto_capture_started_at
-                        >= max(0.1, float(basket_capture_timeout))
-                    )
-
-                    if capture_timed_out:
-                        final_frame = frames[-1].copy()
-
-                        _, final_predictions = processor.process_frames_batch(
-                            [final_frame],
-                            output_type=(output_types[current_type_idx] if render_detection_frames else "raw")
-                        )
-                        trigger_snapshot_frames = [[final_frame]]
-                        trigger_snapshot_preds = [final_predictions]
-                        auto_capture_pending = False
-                        auto_capture_started_at = 0.0
+            elif active_trigger_mode == "auto":
+                if basket_trigger is not None and basket_monitoring:
+                    last_basket_status = basket_trigger.update(frames[-1])
+                    if last_basket_status.get("triggered"):
+                        trigger_snapshot_frames = [[frames[-1]]]
+                        trigger_snapshot_preds = [[predictions[-1] if predictions else []]]
                         should_trigger = True
                         trigger_label = "basket_auto"
 
             if should_trigger:
-                if not is_processing.is_set():
+                if (not is_processing.is_set()) or (
+                    trigger_label == "basket_auto"
+                    and trigger_snapshot_frames is not None
+                    and trigger_snapshot_preds is not None
+                ):
                     is_processing.set()
                     processing_done.clear()
                     emit_status(
@@ -2226,7 +2169,11 @@ def run_realtime_detection(
                         frame_count=frame_count,
                         trigger=trigger_label,
                         basket_capture_pending=False,
-                        basket_capture_count=1 if trigger_label == "basket_auto" else 0,
+                        basket_capture_count=0,
+                        basket_capture_required=0,
+                        basket_stable_frames=int(last_basket_status.get("stable_frames", 0)),
+                        basket_stable_required=int(last_basket_status.get("stable_required", 6)),
+                        basket_stable_enough=bool(last_basket_status.get("stable_enough", False)),
                     )
 
                     # 快照当前批次，避免多批 4K 帧在主线程和后台线程重复滞留
@@ -2254,14 +2201,15 @@ def run_realtime_detection(
                     n_batch_predictions.clear()
                     last_trigger_time = current_time
 
-            if basket_trigger is not None and (frame_callback is not None or not headless):
-                basket_visual = basket_trigger.draw_result(
+            # Basket visualization: auto mode only (manual mode skips basket entirely)
+            if active_trigger_mode == "auto" and basket_trigger is not None and (frame_callback is not None or not headless):
+                # draw_result already resizes internally — skip extra _resize_for_display
+                basket_display = basket_trigger.draw_result(
                     frames[-1],
                     last_basket_status,
                     monitoring=basket_monitoring,
                     processing=is_processing.is_set(),
                 )
-                basket_display = _resize_for_display(basket_visual, display_scale)
                 emit_frame(basket_display)
                 if not headless:
                     if not display_window_ready:
@@ -2269,7 +2217,6 @@ def run_realtime_detection(
                         cv2.resizeWindow("Basket Realtime Detection", DISPLAY_MAX_WIDTH, DISPLAY_MAX_HEIGHT)
                         display_window_ready = True
                     cv2.imshow("Basket Realtime Detection", basket_display)
-                del basket_visual
 
             # ====================================================
             # FPS 统计
@@ -2343,9 +2290,13 @@ def run_realtime_detection(
                 trigger_mode=active_trigger_mode,
                 basket_area_ratio=float(last_basket_status.get("area_ratio", 0.0)),
                 basket_sharpness=float(last_basket_status.get("sharpness", 0.0)),
+                basket_stable_frames=int(last_basket_status.get("stable_frames", 0)),
+                basket_stable_required=int(last_basket_status.get("stable_required", 6)),
+                basket_stable_enough=bool(last_basket_status.get("stable_enough", False)),
                 basket_armed=bool(last_basket_status.get("armed", True)),
-                basket_capture_pending=bool(auto_capture_pending),
+                basket_capture_pending=False,
                 basket_capture_count=0,
+                basket_capture_required=0,
                 basket_monitoring=bool(
                     active_trigger_mode == "auto"
                     and not is_processing.is_set()

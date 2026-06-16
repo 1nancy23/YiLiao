@@ -226,18 +226,9 @@ class PharmaceuticalBottleClassifier:
                 if m.distance < 0.72 * n.distance:
                     good += 1
                     quality += 1.0 - (m.distance / max(n.distance, 1e-6))
-            reverse_matches = self.matcher.knnMatch(desc2, desc1, k=2)
-            reverse_good = 0
-            for item in reverse_matches:
-                if len(item) < 2:
-                    continue
-                m, n = item
-                if m.distance < 0.72 * n.distance:
-                    reverse_good += 1
-            stable_good = min(good, reverse_good)
             avg_quality = quality / max(1, good)
             denom = max(1.0, float(np.sqrt(len(desc1) * len(desc2))))
-            score = (stable_good / denom) * (0.75 + 0.25 * avg_quality)
+            score = (good / denom) * (0.75 + 0.25 * avg_quality)
             return good, score
         except Exception:
             return 0, 0.0
@@ -285,9 +276,10 @@ class PharmaceuticalBottleClassifier:
         if not train_descs:
             return {}, {}, None, 0
 
-        matcher = cv2.BFMatcher(cv2.NORM_L2)
-        matcher.add(train_descs)
-        matcher.train()
+        # Reuse the pre-created FLANN matcher (much faster than per-call BFMatcher)
+        self.flann.clear()
+        self.flann.add(train_descs)
+        self.flann.train()
 
         template_stats = {}
         medicine_stats = {
@@ -297,7 +289,7 @@ class PharmaceuticalBottleClassifier:
         total_good = 0
 
         try:
-            matches = matcher.knnMatch(desc_query, k=2)
+            matches = self.flann.knnMatch(desc_query, k=2)
         except Exception:
             return {}, {}, None, 0
 

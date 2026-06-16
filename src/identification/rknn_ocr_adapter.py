@@ -1187,11 +1187,15 @@ class RknnOCRRecognizer:
         for start in range(0, len(images), batch_size):
             chunk = images[start:start + batch_size]
             pad_inputs += batch_size - len(chunk)
-            first_input = _preprocess_cls_image(chunk[0], self.cls_input_layout)
+            # Parallel CPU preprocessing: CLAHE + resize + normalize per image
+            preprocessed = self._parallel_map(
+                lambda item: _preprocess_cls_image(item[0], item[1]),
+                [(img, self.cls_input_layout) for img in chunk],
+            )
+            first_input = preprocessed[0]
             batch_data = np.empty((batch_size,) + first_input.shape, dtype=first_input.dtype)
-            batch_data[0] = first_input
-            for offset, image in enumerate(chunk[1:], start=1):
-                batch_data[offset] = _preprocess_cls_image(image, self.cls_input_layout)
+            for offset, data in enumerate(preprocessed):
+                batch_data[offset] = data
             if len(chunk) < batch_size:
                 batch_data[len(chunk):] = 0
             t = time.perf_counter()
@@ -1216,6 +1220,74 @@ class RknnOCRRecognizer:
         self.last_timing[f"{timing_prefix}cls_real_inputs"] = getattr(self, "_last_cls_real_inputs", len(images))
         self.last_timing[f"{timing_prefix}cls_pad_inputs"] = getattr(self, "_last_cls_pad_inputs", 0)
         return rotated_images, preds
+
+    def _correct_cylindrical_distortion(self, image, curvature_strength=0.65):
+        """
+        Correct cylindrical (barrel) distortion on bottle labels using cv2.remap.
+
+        Bottle labels wrap around a cylindrical surface, causing text near the edges
+        of the image to appear horizontally compressed while center text is normal.
+        This function "unwraps" the cylinder projection so character proportions are
+        uniform across the entire label — the key distortion that degrades OCR on
+        curved bottle surfaces.
+
+        The correction is a horizontal-only remap: pixels at the image center stay
+        in place, while pixels near the edges are progressively stretched outward.
+        This restores the true aspect ratio of text that would otherwise be
+        misread or missed entirely by the OCR engine.
+
+        The underlying model assumes the bottle is roughly centered in the crop
+        (as YOLO bounding boxes guarantee) and that the visible label spans a
+        symmetric arc of the cylinder surface. The curvature_strength parameter
+        encodes the ratio of the cylinder's radius to the image width.
+
+        Args:
+            image: BGR image of a single bottle crop (already angle-corrected
+                   by the CLS model, so text is horizontal).
+            curvature_strength: Ratio r/w of the cylinder radius to image width.
+                Lower values → more aggressive stretching at the edges.
+                Typical medical vials/bottles range 0.55–0.75; default 0.65
+                is a safe starting point for most shapes.
+
+        Returns:
+            BGR image with cylindrical distortion reduced, same dimensions as
+            input. Falls back to the original image if it is too small to
+            correct reliably (<30 px on either side).
+        """
+        h, w = image.shape[:2]
+        if min(h, w) < 30:
+            return image
+
+        cx = w / 2.0
+        # Ensure radius ≥ w/2 so that |(col - cx) / radius| ≤ 1 for every
+        # column, keeping arcsin() well-defined across the full image width.
+        radius = max(w * curvature_strength, w / 2.0)
+
+        # Build the x-coordinate remap.
+        # For each column i in the *corrected* image the corresponding
+        # half-angle on the cylinder is θ = (i - cx) / radius.
+        # Its source column in the *original* (sin-projected) image is
+        #   src_x = cx + radius * sin(θ).
+        # This maps evenly-spaced angular samples back to the flattened view,
+        # effectively "unrolling" the cylindrical surface.
+        col = np.arange(w, dtype=np.float32)
+        theta = (col - cx) / radius
+        theta = np.clip(theta, -1.0, 1.0)          # keep arcsin safe
+        map_x = cx + radius * np.sin(theta)         # shape (w,)
+        # Broadcast to every row — the correction is purely horizontal.
+        map_x = np.broadcast_to(map_x, (h, w))     # shape (h, w)
+
+        # y-coordinate is unchanged (no vertical correction).
+        map_y = np.broadcast_to(
+            np.arange(h, dtype=np.float32)[:, np.newaxis], (h, w)
+        )
+
+        corrected = cv2.remap(
+            image, map_x, map_y,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
+        return corrected
 
     def _extract_infusion_blue_roi(self, image, wide=False):
         """Extract the blue label area for infusion bags using the dedicated pipeline."""
@@ -1605,10 +1677,16 @@ class RknnOCRRecognizer:
             cls_item = cls_by_owner.get(("bottle", idx))
             if cls_item is None:
                 continue
+            # --- Cylindrical distortion correction for curved bottle labels ---
+            # The YOLO crop captures a cylindrical bottle surface, so text near
+            # the left/right edges is horizontally compressed.  Unwrapping via
+            # cv2.remap before DET+REC significantly improves OCR on bottle
+            # labels, especially for long drug names that span the full label.
+            bottle_image = self._correct_cylindrical_distortion(cls_item["rotated"])
             self._save_predet_image(f"bottle_{idx + 1}_after_cls", cls_item["rotated"])
             candidate = {
                 "owner": ("bottle", idx),
-                "image": cls_item["rotated"],
+                "image": bottle_image,
                 "module": tight_ocr,
                 "padding": BOTTLE_LINE_PADDING,
                 "split_rows": False,

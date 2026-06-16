@@ -618,7 +618,7 @@ class YOLOTileProcessor:
     def __init__(
             self,
             model=None,
-            model_path: str = './model_yolo_0602.rknn',
+            model_path: str = './model_yolo_0615.rknn',
             device: str = 'cuda',
             tile_size: int = 640,
             input_size: int = 640,

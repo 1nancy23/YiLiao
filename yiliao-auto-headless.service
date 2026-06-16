@@ -1,0 +1,17 @@
+[Unit]
+Description=YiLiao automatic result UI
+Wants=network-online.target graphical.target
+After=network-online.target graphical.target display-manager.service
+
+[Service]
+Type=simple
+User=forlinx
+WorkingDirectory=/home/forlinx/Models/AnotherYiliao/shibie/YiLiaoShiBie_0521/YiLiaoShiBie
+Environment=DISPLAY=:0
+Environment=YILIAO_TRIGGER_MODE=auto
+ExecStart=/home/forlinx/start_yiliao_auto_result.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

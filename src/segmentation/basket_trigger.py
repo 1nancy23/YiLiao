@@ -14,12 +14,14 @@ class BasketAutoTrigger:
         iou_threshold=0.45,
         area_threshold=0.40,
         sharpness_threshold=55.0,
+        stable_frames_required=6,
     ):
         self.input_size = int(input_size)
         self.conf_threshold = float(conf_threshold)
         self.iou_threshold = float(iou_threshold)
         self.area_threshold = float(area_threshold)
         self.sharpness_threshold = float(sharpness_threshold)
+        self.stable_frames_required = max(1, int(stable_frames_required))
         self.core = RKNNLite.NPU_CORE_1
         self.lock = get_rknn_lock(self.core, secondary_domain=True)
         self.rknn = RKNNLite()
@@ -28,6 +30,45 @@ class BasketAutoTrigger:
         if self.rknn.init_runtime(core_mask=self.core) != 0:
             raise RuntimeError("Init basket RKNN runtime failed")
         self.armed = True
+        self.previous_valid_box = None
+        self.stable_frames = 0
+
+    @staticmethod
+    def _box_iou(box_a, box_b):
+        if box_a is None or box_b is None:
+            return 0.0
+        ax1, ay1, ax2, ay2 = box_a
+        bx1, by1, bx2, by2 = box_b
+        ix1 = max(ax1, bx1)
+        iy1 = max(ay1, by1)
+        ix2 = min(ax2, bx2)
+        iy2 = min(ay2, by2)
+        iw = max(0.0, ix2 - ix1)
+        ih = max(0.0, iy2 - iy1)
+        intersection = iw * ih
+        area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+        area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+        union = area_a + area_b - intersection
+        return intersection / union if union > 0 else 0.0
+
+    @staticmethod
+    def _box_center_shift_ratio(box_a, box_b, frame):
+        if box_a is None or box_b is None:
+            return 1.0
+        height, width = frame.shape[:2]
+        diag = max(1.0, float((width * width + height * height) ** 0.5))
+        acx = (box_a[0] + box_a[2]) * 0.5
+        acy = (box_a[1] + box_a[3]) * 0.5
+        bcx = (box_b[0] + box_b[2]) * 0.5
+        bcy = (box_b[1] + box_b[3]) * 0.5
+        return float(((acx - bcx) ** 2 + (acy - bcy) ** 2) ** 0.5 / diag)
+
+    def _is_box_static(self, box, frame):
+        if self.previous_valid_box is None:
+            return True
+        iou = self._box_iou(box, self.previous_valid_box)
+        shift_ratio = self._box_center_shift_ratio(box, self.previous_valid_box, frame)
+        return iou >= 0.94 and shift_ratio <= 0.015
 
     def _detect_largest(self, frame):
         height, width = frame.shape[:2]
@@ -90,10 +131,19 @@ class BasketAutoTrigger:
 
         valid = box is not None and area_ratio >= self.area_threshold and sharpness >= self.sharpness_threshold
         if not valid:
+            self.previous_valid_box = None
+            self.stable_frames = 0
             if area_ratio < self.area_threshold:
                 self.armed = True
+        else:
+            if self._is_box_static(box, frame):
+                self.stable_frames += 1
+            else:
+                self.stable_frames = 1
+            self.previous_valid_box = box
 
-        triggered = bool(self.armed and valid)
+        stable_enough = self.stable_frames >= self.stable_frames_required
+        triggered = bool(self.armed and valid and stable_enough)
         if triggered:
             self.armed = False
         return {
@@ -102,11 +152,21 @@ class BasketAutoTrigger:
             "confidence": confidence,
             "area_ratio": area_ratio,
             "sharpness": sharpness,
+            "stable_frames": self.stable_frames,
+            "stable_required": self.stable_frames_required,
+            "stable_enough": stable_enough,
             "armed": self.armed,
         }
 
     def draw_result(self, frame, result, monitoring=True, processing=False):
-        visual = frame.copy()
+        # Draw on a resized copy to avoid duplicating a full 4K frame
+        max_w, max_h = 1024, 600
+        h, w = frame.shape[:2]
+        scale = min(max_w / w, max_h / h, 1.0)
+        if scale < 1.0:
+            visual = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+        else:
+            visual = frame.copy()
         box = result.get("box")
         area_ratio = float(result.get("area_ratio", 0.0))
         sharpness = float(result.get("sharpness", 0.0))
@@ -116,19 +176,21 @@ class BasketAutoTrigger:
         )
         color = (0, 210, 0) if valid else (0, 180, 255)
         if box is not None:
-            x1, y1, x2, y2 = [int(value) for value in box]
+            x1, y1, x2, y2 = [int(value * scale) for value in box]
             cv2.rectangle(visual, (x1, y1), (x2, y2), color, 8)
         state = "PROCESSING" if processing else ("MONITORING" if monitoring else "PAUSED")
         info = (
             f"Basket conf={float(result.get('confidence', 0.0)):.3f} "
             f"area={area_ratio:.1%} sharp={sharpness:.0f} "
+            f"stable={int(result.get('stable_frames', 0))}/{self.stable_frames_required} "
             f"{state}"
         )
         cv2.putText(visual, info, (20, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.15, color, 3, cv2.LINE_AA)
         return visual
 
     def reset_tracking(self):
-        pass
+        self.previous_valid_box = None
+        self.stable_frames = 0
 
     def release(self):
         if self.rknn is not None:
