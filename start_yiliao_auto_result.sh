@@ -49,4 +49,4 @@ cd "${PROJECT_DIR}" || {
 }
 
 echo $$ > "${PID_FILE}"
-exec "${PYTHON_BIN}" native_app.py --auto --result-only --no-trigger-popup --fullscreen >> "${LOG_FILE}" 2>&1
+exec "${PYTHON_BIN}" native_app.py --auto --result-only --fullscreen >> "${LOG_FILE}" 2>&1

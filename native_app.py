@@ -311,6 +311,7 @@ class NativeRuntime:
         self.latest_detection_frame = None
         self.latest_bottle_frame = None
         self._auto_trigger_active = False
+        self._auto_waiting_active = False
         self.requested_trigger_mode = "manual"
         self.status = {
             "state": "idle",
@@ -336,6 +337,7 @@ class NativeRuntime:
             self.latest_detection_frame = None
             self.latest_bottle_frame = None
             self._auto_trigger_active = False
+            self._auto_waiting_active = False
             self.status.update({
                 "state": "starting",
                 "processing": False,
@@ -393,6 +395,8 @@ class NativeRuntime:
 
     def update_status(self, data):
         auto_trigger_started = False
+        auto_waiting_done = False
+        auto_waiting_payload = None
         with self.lock:
             data = dict(data)
             data["trigger_mode"] = self.requested_trigger_mode
@@ -404,8 +408,35 @@ class NativeRuntime:
             self.status.update(jsonable(data))
             status = dict(self.status)
             status["thread_alive"] = bool(self.thread and self.thread.is_alive())
+            stable_frames = int(status.get("basket_stable_frames") or 0)
+            stable_required = max(1, int(status.get("basket_stable_required") or 6))
+            is_waiting_static = (
+                status.get("trigger_mode") == "auto"
+                and bool(status.get("basket_monitoring"))
+                and not bool(status.get("processing"))
+                and bool(status.get("basket_armed", True))
+                and stable_frames > 0
+                and stable_frames < stable_required
+            )
+            if is_waiting_static:
+                self._auto_waiting_active = True
+                auto_waiting_payload = {
+                    "trigger_count": int(status.get("trigger_count", 0)) + 1,
+                    "basket_area_ratio": status.get("basket_area_ratio", 0.0),
+                    "basket_sharpness": status.get("basket_sharpness", 0.0),
+                    "basket_stable_frames": stable_frames,
+                    "basket_stable_required": stable_required,
+                }
+            elif self._auto_waiting_active:
+                self._auto_waiting_active = False
+                auto_waiting_done = True
         self._emit("status", status)
+        if auto_waiting_payload is not None:
+            self._emit("auto_waiting", auto_waiting_payload)
+        elif auto_waiting_done:
+            self._emit("auto_waiting_done", {})
         if auto_trigger_started:
+            self._emit("auto_waiting_done", {})
             self._emit("auto_trigger", {
                 "trigger_count": status.get("trigger_count", 0),
                 "basket_area_ratio": status.get("basket_area_ratio", 0.0),
@@ -612,6 +643,7 @@ class NativeRecognitionApp:
         self.dirty = True
         self.running = True
         self.trigger_popup_until = 0.0
+        self.trigger_popup_persistent = False
         self.set_result_text("检测线程正在启动...\n等待状态变为运行中后点击触发识别。")
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
         if self.fullscreen:
@@ -643,12 +675,12 @@ class NativeRecognitionApp:
                 bottle_frame = self.runtime.snapshot_bottle_frame()
                 if bottle_frame is not None:
                     cv2.imshow(self.bottle_window_name, bottle_frame)
-            if self.trigger_popup_until and time.time() >= self.trigger_popup_until:
-                try:
-                    cv2.destroyWindow(self.trigger_popup_window_name)
-                except cv2.error:
-                    pass
-                self.trigger_popup_until = 0.0
+            if (
+                self.trigger_popup_until
+                and not self.trigger_popup_persistent
+                and time.time() >= self.trigger_popup_until
+            ):
+                self.close_auto_trigger_popup()
             key = cv2.waitKey(35) & 0xFF
             if key in (27, ord("q")):
                 break
@@ -702,12 +734,56 @@ class NativeRecognitionApp:
                     self.dirty = True
                 elif event_type == "result":
                     self.set_result_text(format_result(data))
-                elif event_type == "auto_trigger" and self.show_auto_popup:
-                    self.show_auto_trigger_popup(data)
+                    self.close_auto_trigger_popup()
+                elif event_type == "auto_waiting" and self.show_auto_popup:
+                    self.show_auto_waiting_popup(data)
+                elif event_type == "auto_waiting_done":
+                    self.close_auto_trigger_popup()
+                elif event_type == "auto_trigger":
+                    self.close_auto_trigger_popup()
                 elif event_type == "error":
                     self.set_result_text(data)
+                    self.close_auto_trigger_popup()
         except queue.Empty:
             pass
+
+    def close_auto_trigger_popup(self):
+        if not self.trigger_popup_until:
+            return
+        try:
+            cv2.destroyWindow(self.trigger_popup_window_name)
+        except cv2.error:
+            pass
+        self.trigger_popup_until = 0.0
+        self.trigger_popup_persistent = False
+
+    def show_auto_waiting_popup(self, data):
+        stable = int(data.get("basket_stable_frames", 0))
+        required = max(1, int(data.get("basket_stable_required", 6)))
+        progress = min(1.0, max(0.0, stable / float(required)))
+        canvas = np.full((240, 560, 3), (248, 250, 252), dtype=np.uint8)
+        image = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((12, 12, 548, 228), radius=10, fill=(255, 255, 255), outline=(37, 99, 235), width=3)
+        draw.text((34, 32), "Auto trigger: waiting for still frame", font=get_font(24), fill=(15, 23, 42))
+        draw.text((34, 76), "Basket detected. Recognition will start after the stable-frame count is reached.", font=get_font(15), fill=(51, 65, 85))
+        detail = (
+            f"Stable frames: {stable}/{required}   "
+            f"Area: {float(data.get('basket_area_ratio', 0.0)):.1%}   "
+            f"Sharpness: {float(data.get('basket_sharpness', 0.0)):.0f}"
+        )
+        draw.text((34, 112), detail, font=get_font(17), fill=(37, 99, 235))
+        bar_x1, bar_y1, bar_x2, bar_y2 = 34, 158, 526, 184
+        draw.rounded_rectangle((bar_x1, bar_y1, bar_x2, bar_y2), radius=8, fill=(226, 232, 240))
+        fill_x2 = int(bar_x1 + (bar_x2 - bar_x1) * progress)
+        draw.rounded_rectangle((bar_x1, bar_y1, fill_x2, bar_y2), radius=8, fill=(37, 99, 235))
+        draw.text((34, 198), "This window closes automatically when the frame is stable enough.", font=get_font(14), fill=(100, 116, 139))
+        popup = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
+        cv2.namedWindow(self.trigger_popup_window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(self.trigger_popup_window_name, 560, 240)
+        cv2.imshow(self.trigger_popup_window_name, popup)
+        self.trigger_popup_until = time.time() + 3600.0
+        self.trigger_popup_persistent = True
 
     def show_auto_trigger_popup(self, data):
         canvas = np.full((220, 520, 3), (248, 250, 252), dtype=np.uint8)
