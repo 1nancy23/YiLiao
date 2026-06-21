@@ -729,6 +729,8 @@ class NativeRecognitionApp:
             return
         ok, message = self.runtime.trigger()
         self.set_result_text("已触发识别，正在等待最终匹配结果..." if ok else message)
+        if ok and self.show_auto_popup:
+            self.show_processing_popup()
 
     def on_mouse(self, event, x, y, flags, _param):
         if event == cv2.EVENT_LBUTTONDOWN:
@@ -770,6 +772,8 @@ class NativeRecognitionApp:
                     self.close_auto_trigger_popup()
                 elif event_type == "auto_trigger":
                     self.close_auto_trigger_popup()
+                    if self.show_auto_popup:
+                        self.show_processing_popup()
                 elif event_type == "error":
                     self.set_result_text(data)
                     self.close_auto_trigger_popup()
@@ -822,26 +826,42 @@ class NativeRecognitionApp:
         self.trigger_popup_until = time.time() + 3600.0
         self.trigger_popup_persistent = True
 
+    def show_processing_popup(self):
+        canvas = np.full((160, 360, 3), (248, 250, 252), dtype=np.uint8)
+        image = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((10, 10, 350, 150), radius=10, fill=(255, 255, 255), outline=(37, 99, 235), width=3)
+        title = "正在识别"
+        title_font = get_font(30)
+        draw.text(((360 - text_width(title, title_font)) / 2, 42), title, font=title_font, fill=(15, 23, 42))
+        detail = "请稍候"
+        detail_font = get_font(18)
+        draw.text(((360 - text_width(detail, detail_font)) / 2, 92), detail, font=detail_font, fill=(37, 99, 235))
+        popup = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
+        cv2.namedWindow(self.trigger_popup_window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(self.trigger_popup_window_name, 360, 160)
+        cv2.moveWindow(self.trigger_popup_window_name, max(0, (UI_WIDTH - 360) // 2), max(0, (UI_HEIGHT - 160) // 2))
+        cv2.imshow(self.trigger_popup_window_name, popup)
+        self.trigger_popup_until = time.time() + 3600.0
+        self.trigger_popup_persistent = True
+
     def show_result_popup(self, payload):
         success = is_match_success(payload)
         color = (22, 163, 74) if success else (220, 38, 38)
         title = "匹配通过" if success else "匹配异常"
-        symbol = "✓" if success else "×"
-        canvas = np.full((260, 360, 3), (248, 250, 252), dtype=np.uint8)
+        symbol = "√" if success else "×"
+        canvas = np.full((240, 340, 3), (248, 250, 252), dtype=np.uint8)
         image = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(image)
-        draw.rounded_rectangle((10, 10, 350, 250), radius=12, fill=(255, 255, 255), outline=color, width=4)
+        draw.rounded_rectangle((10, 10, 330, 230), radius=12, fill=(255, 255, 255), outline=color, width=4)
         symbol_font = get_font(112)
-        draw.text(((360 - text_width(symbol, symbol_font)) / 2, 32), symbol, font=symbol_font, fill=color)
-        title_font = get_font(30)
-        draw.text(((360 - text_width(title, title_font)) / 2, 164), title, font=title_font, fill=(15, 23, 42))
-        hint = "请查看右侧最终结果"
-        hint_font = get_font(16)
-        draw.text(((360 - text_width(hint, hint_font)) / 2, 212), hint, font=hint_font, fill=(71, 85, 105))
+        draw.text(((340 - text_width(symbol, symbol_font)) / 2, 28), symbol, font=symbol_font, fill=color)
+        title_font = get_font(28)
+        draw.text(((340 - text_width(title, title_font)) / 2, 160), title, font=title_font, fill=(15, 23, 42))
         popup = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
         cv2.namedWindow(self.result_popup_window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(self.result_popup_window_name, 360, 260)
-        cv2.moveWindow(self.result_popup_window_name, max(0, (UI_WIDTH - 360) // 2), max(0, (UI_HEIGHT - 260) // 2))
+        cv2.resizeWindow(self.result_popup_window_name, 340, 240)
+        cv2.moveWindow(self.result_popup_window_name, max(0, (UI_WIDTH - 340) // 2), max(0, (UI_HEIGHT - 240) // 2))
         cv2.imshow(self.result_popup_window_name, popup)
         self.result_popup_until = time.time() + 4.0
 
