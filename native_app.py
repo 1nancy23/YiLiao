@@ -300,6 +300,26 @@ def format_result(payload):
     return "\n".join(lines)
 
 
+def is_match_success(payload):
+    if not payload:
+        return False
+    match = payload.get("database_match") or {}
+    status = str(match.get("status") or "").lower()
+    message = str(match.get("message") or "").lower()
+    if any(key in status for key in ("error", "not_found", "missing", "fail")):
+        return False
+    if "not found" in message or "不存在" in message or "异常" in message:
+        return False
+    validation = match.get("validation") or {}
+    missing = validation.get("missing") or []
+    extra = validation.get("extra") or []
+    if missing or extra:
+        return False
+    if status in ("matched", "match", "ok", "success", "done", "pass", "valid"):
+        return True
+    return bool(match) and not missing and not extra and not message
+
+
 class NativeRuntime:
     def __init__(self, event_queue):
         self.event_queue = event_queue
@@ -622,6 +642,7 @@ class NativeRecognitionApp:
         self.window_name = "YiLiao Native Recognition"
         self.detection_window_name = "Basket Realtime Detection"
         self.trigger_popup_window_name = "Automatic Trigger"
+        self.result_popup_window_name = "Recognition Result"
         self.bottle_window_name = "Bottle OCR Text Regions"
         self.result_only = bool(result_only)
         self.show_auto_popup = bool(show_auto_popup)
@@ -644,6 +665,8 @@ class NativeRecognitionApp:
         self.running = True
         self.trigger_popup_until = 0.0
         self.trigger_popup_persistent = False
+        self.result_popup_until = 0.0
+        self.models_ready_announced = False
         self.set_result_text("检测线程正在启动...\n等待状态变为运行中后点击触发识别。")
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
         if self.fullscreen:
@@ -681,6 +704,8 @@ class NativeRecognitionApp:
                 and time.time() >= self.trigger_popup_until
             ):
                 self.close_auto_trigger_popup()
+            if self.result_popup_until and time.time() >= self.result_popup_until:
+                self.close_result_popup()
             key = cv2.waitKey(35) & 0xFF
             if key in (27, ord("q")):
                 break
@@ -732,9 +757,13 @@ class NativeRecognitionApp:
                 if event_type == "status" and data != self.status:
                     self.status = data
                     self.dirty = True
+                    if not self.models_ready_announced and data.get("state") == "running":
+                        self.models_ready_announced = True
+                        self.set_result_text("所有模型初始化和加载已完成。\n当前可以进行手动触发，或切换到自动触发模式。")
                 elif event_type == "result":
                     self.set_result_text(format_result(data))
                     self.close_auto_trigger_popup()
+                    self.show_result_popup(data)
                 elif event_type == "auto_waiting" and self.show_auto_popup:
                     self.show_auto_waiting_popup(data)
                 elif event_type == "auto_waiting_done":
@@ -744,6 +773,7 @@ class NativeRecognitionApp:
                 elif event_type == "error":
                     self.set_result_text(data)
                     self.close_auto_trigger_popup()
+                    self.show_result_popup({"database_match": {"status": "error", "message": "检测异常"}})
         except queue.Empty:
             pass
 
@@ -757,33 +787,63 @@ class NativeRecognitionApp:
         self.trigger_popup_until = 0.0
         self.trigger_popup_persistent = False
 
+    def close_result_popup(self):
+        if not self.result_popup_until:
+            return
+        try:
+            cv2.destroyWindow(self.result_popup_window_name)
+        except cv2.error:
+            pass
+        self.result_popup_until = 0.0
+
     def show_auto_waiting_popup(self, data):
         stable = int(data.get("basket_stable_frames", 0))
         required = max(1, int(data.get("basket_stable_required", 6)))
         progress = min(1.0, max(0.0, stable / float(required)))
-        canvas = np.full((240, 560, 3), (248, 250, 252), dtype=np.uint8)
+        canvas = np.full((180, 420, 3), (248, 250, 252), dtype=np.uint8)
         image = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(image)
-        draw.rounded_rectangle((12, 12, 548, 228), radius=10, fill=(255, 255, 255), outline=(37, 99, 235), width=3)
-        draw.text((34, 32), "Auto trigger: waiting for still frame", font=get_font(24), fill=(15, 23, 42))
-        draw.text((34, 76), "Basket detected. Recognition will start after the stable-frame count is reached.", font=get_font(15), fill=(51, 65, 85))
-        detail = (
-            f"Stable frames: {stable}/{required}   "
-            f"Area: {float(data.get('basket_area_ratio', 0.0)):.1%}   "
-            f"Sharpness: {float(data.get('basket_sharpness', 0.0)):.0f}"
-        )
-        draw.text((34, 112), detail, font=get_font(17), fill=(37, 99, 235))
-        bar_x1, bar_y1, bar_x2, bar_y2 = 34, 158, 526, 184
+        draw.rounded_rectangle((10, 10, 410, 170), radius=10, fill=(255, 255, 255), outline=(37, 99, 235), width=3)
+        title = "等待画面静止"
+        title_font = get_font(28)
+        draw.text(((420 - text_width(title, title_font)) / 2, 30), title, font=title_font, fill=(15, 23, 42))
+        detail = f"静止帧数 {stable}/{required}"
+        detail_font = get_font(22)
+        draw.text(((420 - text_width(detail, detail_font)) / 2, 76), detail, font=detail_font, fill=(37, 99, 235))
+        bar_x1, bar_y1, bar_x2, bar_y2 = 46, 122, 374, 146
         draw.rounded_rectangle((bar_x1, bar_y1, bar_x2, bar_y2), radius=8, fill=(226, 232, 240))
         fill_x2 = int(bar_x1 + (bar_x2 - bar_x1) * progress)
         draw.rounded_rectangle((bar_x1, bar_y1, fill_x2, bar_y2), radius=8, fill=(37, 99, 235))
-        draw.text((34, 198), "This window closes automatically when the frame is stable enough.", font=get_font(14), fill=(100, 116, 139))
         popup = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
         cv2.namedWindow(self.trigger_popup_window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(self.trigger_popup_window_name, 560, 240)
+        cv2.resizeWindow(self.trigger_popup_window_name, 420, 180)
+        cv2.moveWindow(self.trigger_popup_window_name, max(0, (UI_WIDTH - 420) // 2), max(0, (UI_HEIGHT - 180) // 2))
         cv2.imshow(self.trigger_popup_window_name, popup)
         self.trigger_popup_until = time.time() + 3600.0
         self.trigger_popup_persistent = True
+
+    def show_result_popup(self, payload):
+        success = is_match_success(payload)
+        color = (22, 163, 74) if success else (220, 38, 38)
+        title = "匹配通过" if success else "匹配异常"
+        symbol = "✓" if success else "×"
+        canvas = np.full((260, 360, 3), (248, 250, 252), dtype=np.uint8)
+        image = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((10, 10, 350, 250), radius=12, fill=(255, 255, 255), outline=color, width=4)
+        symbol_font = get_font(112)
+        draw.text(((360 - text_width(symbol, symbol_font)) / 2, 32), symbol, font=symbol_font, fill=color)
+        title_font = get_font(30)
+        draw.text(((360 - text_width(title, title_font)) / 2, 164), title, font=title_font, fill=(15, 23, 42))
+        hint = "请查看右侧最终结果"
+        hint_font = get_font(16)
+        draw.text(((360 - text_width(hint, hint_font)) / 2, 212), hint, font=hint_font, fill=(71, 85, 105))
+        popup = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
+        cv2.namedWindow(self.result_popup_window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(self.result_popup_window_name, 360, 260)
+        cv2.moveWindow(self.result_popup_window_name, max(0, (UI_WIDTH - 360) // 2), max(0, (UI_HEIGHT - 260) // 2))
+        cv2.imshow(self.result_popup_window_name, popup)
+        self.result_popup_until = time.time() + 4.0
 
     def show_auto_trigger_popup(self, data):
         canvas = np.full((220, 520, 3), (248, 250, 252), dtype=np.uint8)
