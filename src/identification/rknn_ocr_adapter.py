@@ -25,15 +25,15 @@ BOTTLE_LINE_PADDING = {
     "final_min_short_side_padding": 4,
     "final_max_short_side_padding": 12,
 }
-INFUSION_PADDING = {"box_padding_ratio": 0.04, "min_box_padding": 1, "max_box_padding": 4}
+INFUSION_PADDING = {"box_padding_ratio": 0.025, "min_box_padding": 1, "max_box_padding": 3}
 INFUSION_MERGE_KWARGS = {
-    "center_y_ratio": 0.30,
-    "overlap_ratio": 0.55,
-    "max_gap_ratio": 0.85,
-    "min_gap": 18,
-    "crop_padding_ratio": 0.08,
-    "min_crop_padding": 6,
-    "max_crop_padding": 28,
+    "center_y_ratio": 0.22,
+    "overlap_ratio": 0.45,
+    "max_gap_ratio": 0.50,
+    "min_gap": 10,
+    "crop_padding_ratio": 0.035,
+    "min_crop_padding": 2,
+    "max_crop_padding": 9,
 }
 NAME_ROI_PADDING = {"box_padding_ratio": 0.18, "min_box_padding": 4, "max_box_padding": 12}
 
@@ -186,9 +186,11 @@ class RknnOCRRecognizer:
         ])
         inferred_det_batch_size = _batch_size_from_path(self.det_model_path, default=1)
 
+        rec_bs32_path = os.path.join(root, "model_ocr_0624_bs32.rknn")
         rec_bs16_path = os.path.join(root, "model_ocr_0526.rknn")
         rec_bs64_path = os.path.join(root, "model_ocr_0602_bs64.rknn")
         self.rec_model_path = rec_model_path or _first_existing_path([
+            rec_bs32_path,
             rec_bs16_path,
             rec_bs64_path,
         ])
@@ -841,8 +843,8 @@ class RknnOCRRecognizer:
         for y1, y2 in merged:
             if y2 - y1 + 1 < min_row_h:
                 continue
-            y1p = max(0, y1 - 3)
-            y2p = min(height, y2 + 4)
+            y1p = max(0, y1 - 2)
+            y2p = min(height, y2 + 3)
             row_mask = mask[y1p:y2p, :]
             col_counts = np.count_nonzero(row_mask, axis=0)
             cols = np.where(col_counts > max(1, int((y2p - y1p) * 0.08)))[0]
@@ -1315,22 +1317,95 @@ class RknnOCRRecognizer:
             or h < img_h * 0.035
         ):
             return None
-        pad_x = max(14, int(w * 0.10), int(img_w * 0.018))
-        pad_top = max(10, int(h * 0.16), int(img_h * 0.018))
-        # The volume line may sit below the blue percentage badge, especially
-        # on 5%/50ml bags. Keep the blue contour as the anchor, but extend the
-        # lower crop enough to include that non-blue volume text.
-        pad_bottom = max(24, int(h * 0.78), int(img_h * 0.16))
+        pad_x = max(6, int(w * 0.035), int(img_w * 0.006))
+        pad_top = max(4, int(h * 0.045), int(img_h * 0.006))
+        # Keep this crop tight around the contiguous blue label.  Text-line
+        # padding happens after DET; pulling transparent bag/background into
+        # this ROI makes the detector merge unrelated rows.
+        pad_bottom = max(8, int(h * 0.12), int(img_h * 0.014))
         if wide:
-            pad_x = max(pad_x, int(w * 0.20), int(img_w * 0.035))
-            pad_top = max(pad_top, int(h * 0.32), int(img_h * 0.035))
-            pad_bottom = max(pad_bottom, int(h * 1.05), int(img_h * 0.22))
+            pad_x = max(pad_x, int(w * 0.06), int(img_w * 0.010))
+            pad_top = max(pad_top, int(h * 0.075), int(img_h * 0.010))
+            pad_bottom = max(pad_bottom, int(h * 0.20), int(img_h * 0.024))
         x1 = max(x - pad_x, 0)
         y1 = max(y - pad_top, 0)
         x2 = min(x + w + pad_x, img_w)
         y2 = min(y + h + pad_bottom, img_h)
         roi = image[y1:y2, x1:x2]
         return roi if roi.size > 0 else None
+
+    def _extract_infusion_blue_component_rois(self, image):
+        if image is None or image.size == 0:
+            return []
+
+        img_h, img_w = image.shape[:2]
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, np.array([90, 50, 40]), np.array([145, 255, 255]))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        components = []
+        image_area = max(1, img_w * img_h)
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            contour_area = cv2.contourArea(contour)
+            if contour_area < max(60, image_area * 0.0015):
+                continue
+            if w < max(10, img_w * 0.025) or h < max(12, img_h * 0.025):
+                continue
+            components.append((x, y, w, h, contour_area))
+
+        if not components:
+            return []
+
+        components.sort(key=lambda item: item[4], reverse=True)
+        main = components[0]
+        mx, my, mw, mh, _main_area = main
+        main_x1, main_x2 = mx, mx + mw
+        main_cx = mx + mw * 0.5
+        selected = [main]
+        for item in components[1:]:
+            x, y, w, h, area = item
+            if len(selected) >= 4:
+                break
+            aspect = w / float(max(1, h))
+            overlap = max(0, min(x + w, main_x2) - max(x, main_x1))
+            overlap_ratio = overlap / float(max(1, min(w, mw)))
+            cx = x + w * 0.5
+            same_label_column = (
+                overlap_ratio >= 0.18
+                or abs(cx - main_cx) <= max(mw * 0.55, img_w * 0.08)
+            )
+            below_or_near_main = y >= my - mh * 0.20
+            within_main_label_stack = y <= my + mh * 2.25
+            if (
+                same_label_column
+                and below_or_near_main
+                and within_main_label_stack
+                and (area >= image_area * 0.0018 or 0.20 <= aspect <= 4.5)
+            ):
+                selected.append(item)
+
+        # Tight combined crop around the actual blue components only.  It keeps
+        # the main label and concentration/volume badges together without
+        # extending into the transparent bag or barcode area as a fallback.
+        if selected:
+            x1 = min(item[0] for item in selected)
+            y1 = min(item[1] for item in selected)
+            x2 = max(item[0] + item[2] for item in selected)
+            y2 = max(item[1] + item[3] for item in selected)
+            pad_x = max(4, int((x2 - x1) * 0.025))
+            pad_y = max(3, int((y2 - y1) * 0.035))
+            x1 = max(0, x1 - pad_x)
+            y1 = max(0, y1 - pad_y)
+            x2 = min(img_w, x2 + pad_x)
+            y2 = min(img_h, y2 + pad_y)
+            roi = image[y1:y2, x1:x2]
+            if roi.size > 0:
+                return [("blue_best", roi)]
+        return []
 
     def _crop_ratio(self, image, spec):
         if image is None or image.size == 0:
@@ -1364,15 +1439,9 @@ class RknnOCRRecognizer:
         if image is None or image.size == 0:
             return candidates
 
-        blue_wide = self._extract_infusion_blue_roi(image, wide=True)
-        if blue_wide is not None and blue_wide.size > 0:
-            self._append_infusion_candidate(candidates, "blue_wide", blue_wide)
-            self._save_debug_image("infusion_blue_wide_roi", blue_wide)
-
-        blue = self._extract_infusion_blue_roi(image, wide=False)
-        if blue is not None and blue.size > 0:
-            self._append_infusion_candidate(candidates, "blue", blue)
-            self._save_debug_image("infusion_blue_roi", blue)
+        for name, roi in self._extract_infusion_blue_component_rois(image):
+            self._append_infusion_candidate(candidates, name, roi)
+            self._save_debug_image(f"infusion_{name}_roi", roi)
         return candidates
 
     def _fake_ocr_result(self, texts):

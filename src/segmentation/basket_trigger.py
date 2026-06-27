@@ -30,7 +30,10 @@ class BasketAutoTrigger:
         if self.rknn.init_runtime(core_mask=self.core) != 0:
             raise RuntimeError("Init basket RKNN runtime failed")
         self.armed = True
+        self.candidate_active = False
+        self.invalid_moving_frames = 0
         self.previous_valid_box = None
+        self.previous_static_thumb = None
         self.stable_frames = 0
 
     @staticmethod
@@ -68,7 +71,20 @@ class BasketAutoTrigger:
             return True
         iou = self._box_iou(box, self.previous_valid_box)
         shift_ratio = self._box_center_shift_ratio(box, self.previous_valid_box, frame)
-        return iou >= 0.94 and shift_ratio <= 0.015
+        return iou >= 0.88 and shift_ratio <= 0.03
+
+    def _is_frame_static(self, frame):
+        if frame is None or frame.size == 0:
+            return False
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        thumb = cv2.resize(gray, (160, 90), interpolation=cv2.INTER_AREA)
+        if self.previous_static_thumb is None:
+            self.previous_static_thumb = thumb
+            return True
+        diff = cv2.absdiff(thumb, self.previous_static_thumb)
+        mean_diff = float(np.mean(diff))
+        self.previous_static_thumb = thumb
+        return mean_diff <= 4.5
 
     def _detect_largest(self, frame):
         height, width = frame.shape[:2]
@@ -130,28 +146,54 @@ class BasketAutoTrigger:
                 sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
         valid = box is not None and area_ratio >= self.area_threshold and sharpness >= self.sharpness_threshold
-        if not valid:
-            self.previous_valid_box = None
-            self.stable_frames = 0
-            if area_ratio < self.area_threshold:
-                self.armed = True
-        else:
-            if self._is_box_static(box, frame):
+        if valid:
+            self.candidate_active = True
+            self.invalid_moving_frames = 0
+            if self._is_frame_static(frame):
                 self.stable_frames += 1
             else:
                 self.stable_frames = 1
             self.previous_valid_box = box
+        elif self.candidate_active:
+            # Once a basket candidate is established, do not let a single
+            # unstable YOLO frame reset the static wait. Staticness is measured
+            # from the raw frame, while YOLO only decides candidate entry/removal.
+            if self._is_frame_static(frame):
+                self.stable_frames += 1
+                self.invalid_moving_frames = 0
+            else:
+                self.stable_frames = 1
+                self.invalid_moving_frames += 1
+                if self.invalid_moving_frames >= 3:
+                    self.candidate_active = False
+                    self.previous_valid_box = None
+                    self.previous_static_thumb = None
+                    self.stable_frames = 0
+                    if area_ratio < self.area_threshold:
+                        self.armed = True
+        else:
+            self.previous_valid_box = None
+            self.previous_static_thumb = None
+            self.stable_frames = 0
+            self.invalid_moving_frames = 0
+            if area_ratio < self.area_threshold:
+                self.armed = True
 
         stable_enough = self.stable_frames >= self.stable_frames_required
-        triggered = bool(self.armed and valid and stable_enough)
+        triggered = bool(self.armed and self.candidate_active and stable_enough)
         if triggered:
             self.armed = False
+            self.candidate_active = False
+            self.invalid_moving_frames = 0
         return {
             "triggered": triggered,
             "box": box,
             "confidence": confidence,
             "area_ratio": area_ratio,
             "sharpness": sharpness,
+            "valid": valid,
+            "candidate_active": self.candidate_active,
+            "invalid_moving_frames": self.invalid_moving_frames,
             "stable_frames": self.stable_frames,
             "stable_required": self.stable_frames_required,
             "stable_enough": stable_enough,
@@ -189,7 +231,10 @@ class BasketAutoTrigger:
         return visual
 
     def reset_tracking(self):
+        self.candidate_active = False
+        self.invalid_moving_frames = 0
         self.previous_valid_box = None
+        self.previous_static_thumb = None
         self.stable_frames = 0
 
     def release(self):

@@ -470,6 +470,7 @@ class NativeRuntime:
         payload = jsonable(payload)
         with self.lock:
             self.last_result = payload
+            self.latest_detection_frame = None
             self.latest_bottle_frame = bottle_frame
             self.status["last_result_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
             self.status["processing"] = False
@@ -541,7 +542,7 @@ class NativeRuntime:
             )
 
             det_model_path = os.path.join(PROJECT_ROOT, "src", "identification", "Det_bs32.rknn")
-            rec_model_path = os.path.join(PROJECT_ROOT, "model_ocr_0526.rknn")
+            rec_model_path = os.path.join(PROJECT_ROOT, "model_ocr_0624_bs32.rknn")
             cls_model_path = os.path.join(PROJECT_ROOT, "model_cls_bs32.rknn")
             ocr_recognizers = [
                 RknnOCRRecognizer(
@@ -549,7 +550,7 @@ class NativeRuntime:
                     rec_model_path=rec_model_path,
                     cls_model_path=cls_model_path,
                     det_batch_size=32,
-                    rec_batch_size=16,
+                    rec_batch_size=32,
                     cls_batch_size=32,
                 )
                 for _ in range(max(1, ocr_instance_count))
@@ -666,6 +667,8 @@ class NativeRecognitionApp:
         self.trigger_popup_until = 0.0
         self.trigger_popup_persistent = False
         self.result_popup_until = 0.0
+        self.detection_window_visible = False
+        self.detection_suppressed_until = 0.0
         self.models_ready_announced = False
         self.set_result_text("检测线程正在启动...\n等待状态变为运行中后点击触发识别。")
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
@@ -674,13 +677,10 @@ class NativeRecognitionApp:
         else:
             cv2.resizeWindow(self.window_name, UI_WIDTH, UI_HEIGHT)
         if not self.result_only:
-            cv2.namedWindow(self.detection_window_name, cv2.WINDOW_NORMAL)
-            cv2.resizeWindow(self.detection_window_name, UI_WIDTH, UI_HEIGHT)
             cv2.namedWindow(self.bottle_window_name, cv2.WINDOW_NORMAL)
             cv2.resizeWindow(self.bottle_window_name, UI_WIDTH, UI_HEIGHT)
         cv2.imshow(self.window_name, self.render())
         if not self.result_only:
-            cv2.imshow(self.detection_window_name, np.zeros((UI_HEIGHT, UI_WIDTH, 3), dtype=np.uint8))
             cv2.imshow(self.bottle_window_name, np.zeros((UI_HEIGHT, UI_WIDTH, 3), dtype=np.uint8))
         cv2.waitKey(1)
         cv2.setMouseCallback(self.window_name, self.on_mouse)
@@ -691,10 +691,10 @@ class NativeRecognitionApp:
         while self.running:
             self.drain_events()
             cv2.imshow(self.window_name, self.render())
+            detection_frame = self.runtime.snapshot_detection_frame()
+            if detection_frame is not None:
+                self.show_detection_frame(detection_frame)
             if not self.result_only:
-                detection_frame = self.runtime.snapshot_detection_frame()
-                if detection_frame is not None:
-                    cv2.imshow(self.detection_window_name, detection_frame)
                 bottle_frame = self.runtime.snapshot_bottle_frame()
                 if bottle_frame is not None:
                     cv2.imshow(self.bottle_window_name, bottle_frame)
@@ -765,6 +765,8 @@ class NativeRecognitionApp:
                 elif event_type == "result":
                     self.set_result_text(format_result(data))
                     self.close_auto_trigger_popup()
+                    self.detection_suppressed_until = time.time() + 4.0
+                    self.close_detection_window()
                     self.show_result_popup(data)
                 elif event_type == "auto_waiting" and self.show_auto_popup:
                     self.show_auto_waiting_popup(data)
@@ -777,9 +779,33 @@ class NativeRecognitionApp:
                 elif event_type == "error":
                     self.set_result_text(data)
                     self.close_auto_trigger_popup()
+                    self.detection_suppressed_until = time.time() + 4.0
+                    self.close_detection_window()
                     self.show_result_popup({"database_match": {"status": "error", "message": "检测异常"}})
         except queue.Empty:
             pass
+
+    def show_detection_frame(self, frame):
+        if self.detection_suppressed_until and time.time() < self.detection_suppressed_until:
+            return
+        if not self.detection_window_visible:
+            cv2.namedWindow(self.detection_window_name, cv2.WINDOW_NORMAL)
+            cv2.setWindowProperty(
+                self.detection_window_name,
+                cv2.WND_PROP_FULLSCREEN,
+                cv2.WINDOW_FULLSCREEN,
+            )
+            self.detection_window_visible = True
+        cv2.imshow(self.detection_window_name, frame)
+
+    def close_detection_window(self):
+        if not self.detection_window_visible:
+            return
+        try:
+            cv2.destroyWindow(self.detection_window_name)
+        except cv2.error:
+            pass
+        self.detection_window_visible = False
 
     def close_auto_trigger_popup(self):
         if not self.trigger_popup_until:
@@ -799,6 +825,18 @@ class NativeRecognitionApp:
         except cv2.error:
             pass
         self.result_popup_until = 0.0
+
+    def center_popup_window(self, window_name, width, height):
+        screen_w = int(os.environ.get("YILIAO_SCREEN_WIDTH", UI_WIDTH) or UI_WIDTH)
+        screen_h = int(os.environ.get("YILIAO_SCREEN_HEIGHT", UI_HEIGHT) or UI_HEIGHT)
+        x = max(0, (screen_w - int(width)) // 2)
+        y = max(0, (screen_h - int(height)) // 2)
+        try:
+            cv2.moveWindow(window_name, x, y)
+            if hasattr(cv2, "WND_PROP_TOPMOST"):
+                cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
+        except cv2.error:
+            pass
 
     def show_auto_waiting_popup(self, data):
         stable = int(data.get("basket_stable_frames", 0))
@@ -821,10 +859,11 @@ class NativeRecognitionApp:
         popup = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
         cv2.namedWindow(self.trigger_popup_window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(self.trigger_popup_window_name, 420, 180)
-        cv2.moveWindow(self.trigger_popup_window_name, max(0, (UI_WIDTH - 420) // 2), max(0, (UI_HEIGHT - 180) // 2))
+        self.center_popup_window(self.trigger_popup_window_name, 420, 180)
         cv2.imshow(self.trigger_popup_window_name, popup)
-        self.trigger_popup_until = time.time() + 3600.0
-        self.trigger_popup_persistent = True
+        self.center_popup_window(self.trigger_popup_window_name, 420, 180)
+        self.trigger_popup_until = time.time() + 1.0
+        self.trigger_popup_persistent = False
 
     def show_processing_popup(self):
         canvas = np.full((160, 360, 3), (248, 250, 252), dtype=np.uint8)
@@ -840,8 +879,9 @@ class NativeRecognitionApp:
         popup = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
         cv2.namedWindow(self.trigger_popup_window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(self.trigger_popup_window_name, 360, 160)
-        cv2.moveWindow(self.trigger_popup_window_name, max(0, (UI_WIDTH - 360) // 2), max(0, (UI_HEIGHT - 160) // 2))
+        self.center_popup_window(self.trigger_popup_window_name, 360, 160)
         cv2.imshow(self.trigger_popup_window_name, popup)
+        self.center_popup_window(self.trigger_popup_window_name, 360, 160)
         self.trigger_popup_until = time.time() + 3600.0
         self.trigger_popup_persistent = True
 
@@ -861,8 +901,9 @@ class NativeRecognitionApp:
         popup = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
         cv2.namedWindow(self.result_popup_window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(self.result_popup_window_name, 340, 240)
-        cv2.moveWindow(self.result_popup_window_name, max(0, (UI_WIDTH - 340) // 2), max(0, (UI_HEIGHT - 240) // 2))
+        self.center_popup_window(self.result_popup_window_name, 340, 240)
         cv2.imshow(self.result_popup_window_name, popup)
+        self.center_popup_window(self.result_popup_window_name, 340, 240)
         self.result_popup_until = time.time() + 4.0
 
     def show_auto_trigger_popup(self, data):
@@ -883,7 +924,9 @@ class NativeRecognitionApp:
         popup = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
         cv2.namedWindow(self.trigger_popup_window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(self.trigger_popup_window_name, 520, 220)
+        self.center_popup_window(self.trigger_popup_window_name, 520, 220)
         cv2.imshow(self.trigger_popup_window_name, popup)
+        self.center_popup_window(self.trigger_popup_window_name, 520, 220)
         self.trigger_popup_until = time.time() + 2.5
 
     def set_result_text(self, text):

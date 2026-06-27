@@ -1062,7 +1062,7 @@ def run_realtime_detection(
             headless = not bool(os.environ.get("DISPLAY"))
     print(f"  headless显示模式: {headless}")
     verbose_runtime = runtime_logs and os.environ.get("YILIAO_VERBOSE_RUNTIME", "0").lower() not in ("0", "false", "no")
-    render_detection_frames = save_video
+    render_detection_frames = save_video or frame_callback is not None or not headless
 
     # ============================================================
     # RTSP 连接
@@ -2201,8 +2201,24 @@ def run_realtime_detection(
                     n_batch_predictions.clear()
                     last_trigger_time = current_time
 
+            # Auto visualization: basket monitoring before trigger, target YOLO after trigger.
+            if (
+                active_trigger_mode == "auto"
+                and is_processing.is_set()
+                and result_frames
+                and (frame_callback is not None or not headless)
+            ):
+                target_display = _resize_for_display(result_frames[-1], display_scale)
+                emit_frame(target_display)
+                if not headless:
+                    if not display_window_ready:
+                        cv2.namedWindow("Basket Realtime Detection", cv2.WINDOW_NORMAL)
+                        cv2.resizeWindow("Basket Realtime Detection", DISPLAY_MAX_WIDTH, DISPLAY_MAX_HEIGHT)
+                        display_window_ready = True
+                    cv2.imshow("Basket Realtime Detection", target_display)
+
             # Basket visualization: auto mode only (manual mode skips basket entirely)
-            if active_trigger_mode == "auto" and basket_trigger is not None and (frame_callback is not None or not headless):
+            elif active_trigger_mode == "auto" and basket_trigger is not None and (frame_callback is not None or not headless):
                 # draw_result already resizes internally — skip extra _resize_for_display
                 basket_display = basket_trigger.draw_result(
                     frames[-1],
