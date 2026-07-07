@@ -534,6 +534,13 @@ def _runtime_log(*args, **kwargs):
         print(*args, **kwargs)
 
 
+def _visual_box_thickness(image):
+    if not isinstance(image, np.ndarray) or image.ndim < 2:
+        return 5
+    h, w = image.shape[:2]
+    return max(5, int(round(min(h, w) / 120.0)))
+
+
 def postprocess_rknn_output(output, original_image, conf_threshold=0.5, iou_threshold=0.5):
     predictions = output[0].T
 
@@ -588,7 +595,9 @@ def postprocess_rknn_output(output, original_image, conf_threshold=0.5, iou_thre
 
         color = colors.get(class_id, (255, 255, 255))
 
-        cv2.rectangle(result_image, (x1, y1), (x2, y2), color, 2)
+        box_thickness = _visual_box_thickness(result_image)
+        text_thickness = max(2, box_thickness // 2)
+        cv2.rectangle(result_image, (x1, y1), (x2, y2), color, box_thickness)
 
         label = f"Class {class_id}: {score:.2f}"
 
@@ -596,17 +605,18 @@ def postprocess_rknn_output(output, original_image, conf_threshold=0.5, iou_thre
             label,
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
-            1
+                text_thickness
         )
-        cv2.rectangle(result_image, (x1, y1 - 20), (x1 + w_text, y1), color, -1)
+        label_h = h_text + 10
+        cv2.rectangle(result_image, (x1, max(0, y1 - label_h)), (x1 + w_text + 10, y1), color, -1)
         cv2.putText(
             result_image,
             label,
-            (x1, y1 - 5),
+            (x1 + 5, max(h_text + 2, y1 - 5)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
             (0, 0, 0),
-            1
+            text_thickness
         )
 
         _runtime_log(f"绘制框: 类别={class_id}, 置信度={score:.2f}, 坐标=({x1},{y1},{x2},{y2})")
@@ -887,13 +897,16 @@ class YOLOTileProcessor:
             color_map = self._color_map
 
         det_array = np.asarray(detections, dtype=np.float32).reshape(-1, 6)
+        box_thickness = _visual_box_thickness(img)
+        text_thickness = max(2, box_thickness // 2)
+        text_scale = 0.6
 
         for x1, y1, x2, y2, conf, cls_id in det_array:
             x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
             color = color_map[int(cls_id) % len(color_map)].tolist()
 
-            cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+            cv2.rectangle(img, (x1, y1), (x2, y2), color, box_thickness)
 
             if class_names:
                 cls_name = class_names[int(cls_id)]
@@ -909,19 +922,20 @@ class YOLOTileProcessor:
             (tw, th), _ = cv2.getTextSize(
                 label,
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                1
+                text_scale,
+                text_thickness
             )
 
-            cv2.rectangle(img, (x1, y1 - th - 4), (x1 + tw, y1), color, -1)
+            label_h = th + 10
+            cv2.rectangle(img, (x1, max(0, y1 - label_h)), (x1 + tw + 10, y1), color, -1)
             cv2.putText(
                 img,
                 label,
-                (x1, y1 - 4),
+                (x1 + 5, max(th + 2, y1 - 5)),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
+                text_scale,
                 (255, 255, 255),
-                1
+                text_thickness
             )
 
         return img

@@ -59,8 +59,8 @@ def run_auto_headless(check_only=False):
         config["model"].get("yolo_rknn_path", "./model_yolo_0615.rknn"),
         config["model"].get("basket_rknn_path", "./model_bask_0609_n.rknn"),
         "model_cls_bs32.rknn",
-        "model_ocr_0526.rknn",
-        os.path.join("src", "identification", "Det_bs32.rknn"),
+        "model_ocr_bs16.rknn",
+        "model_det_bs16.rknn",
     ]
     for path in required_paths:
         full_path = path if os.path.isabs(path) else os.path.join(PROJECT_ROOT, path)
@@ -132,15 +132,16 @@ def run_auto_headless(check_only=False):
             patient_column=tables["patient_column"],
         )
 
-        det_model_path = os.path.join(PROJECT_ROOT, "src", "identification", "Det_bs32.rknn")
-        rec_model_path = os.path.join(PROJECT_ROOT, "model_ocr_0526.rknn")
+        det_model_path = os.path.join(PROJECT_ROOT, "model_det_bs16.rknn")
+        rec_model_path = os.path.join(PROJECT_ROOT, "model_ocr_bs16.rknn")
         cls_model_path = os.path.join(PROJECT_ROOT, "model_cls_bs32.rknn")
         ocr_recognizers = [
             RknnOCRRecognizer(
                 det_model_path=det_model_path,
                 rec_model_path=rec_model_path,
                 cls_model_path=cls_model_path,
-                det_batch_size=32,
+                det_input_size=448,
+                det_batch_size=16,
                 rec_batch_size=16,
                 cls_batch_size=32,
             )
@@ -177,7 +178,7 @@ def run_auto_headless(check_only=False):
             basket_input_size=int(config["model"].get("basket_input_size", 640)),
             basket_area_threshold=float(runtime_config.get("basket_area_threshold", 0.40)),
             basket_sharpness_threshold=float(runtime_config.get("basket_sharpness_threshold", 55.0)),
-            basket_stable_frames=int(runtime_config.get("basket_stable_frames", 6)),
+            basket_stable_frames=int(runtime_config.get("basket_stable_frames", 12)),
             basket_capture_timeout=float(runtime_config.get("basket_capture_timeout", 10.0)),
             basket_resume_delay=float(runtime_config.get("basket_resume_delay", 1.0)),
             trigger_interval=999999.0,

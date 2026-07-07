@@ -191,6 +191,15 @@ def text_width(text, font):
     return bbox[2] - bbox[0]
 
 
+def load_result_icon(success):
+    names = ("对.png",) if success else ("错 .png", "错.png")
+    for name in names:
+        path = os.path.join(PROJECT_ROOT, name)
+        if os.path.exists(path):
+            return Image.open(path).convert("RGBA")
+    return None
+
+
 def wrap_paragraph(text, font, max_width):
     text = str(text)
     if not text:
@@ -344,7 +353,7 @@ class NativeRuntime:
             "last_error": None,
             "trigger_count": 0,
             "basket_stable_frames": 0,
-            "basket_stable_required": 6,
+            "basket_stable_required": 12,
         }
 
     def start(self):
@@ -429,7 +438,7 @@ class NativeRuntime:
             status = dict(self.status)
             status["thread_alive"] = bool(self.thread and self.thread.is_alive())
             stable_frames = int(status.get("basket_stable_frames") or 0)
-            stable_required = max(1, int(status.get("basket_stable_required") or 6))
+            stable_required = max(1, int(status.get("basket_stable_required") or 12))
             is_waiting_static = (
                 status.get("trigger_mode") == "auto"
                 and bool(status.get("basket_monitoring"))
@@ -462,7 +471,7 @@ class NativeRuntime:
                 "basket_area_ratio": status.get("basket_area_ratio", 0.0),
                 "basket_sharpness": status.get("basket_sharpness", 0.0),
                 "basket_stable_frames": status.get("basket_stable_frames", 0),
-                "basket_stable_required": status.get("basket_stable_required", 6),
+                "basket_stable_required": status.get("basket_stable_required", 12),
             })
 
     def update_result(self, payload):
@@ -541,16 +550,17 @@ class NativeRuntime:
                 patient_column=tables["patient_column"],
             )
 
-            det_model_path = os.path.join(PROJECT_ROOT, "src", "identification", "Det_bs32.rknn")
-            rec_model_path = os.path.join(PROJECT_ROOT, "model_ocr_0624_bs32.rknn")
+            det_model_path = os.path.join(PROJECT_ROOT, "model_det_bs16.rknn")
+            rec_model_path = os.path.join(PROJECT_ROOT, "model_ocr_bs16.rknn")
             cls_model_path = os.path.join(PROJECT_ROOT, "model_cls_bs32.rknn")
             ocr_recognizers = [
                 RknnOCRRecognizer(
                     det_model_path=det_model_path,
                     rec_model_path=rec_model_path,
                     cls_model_path=cls_model_path,
-                    det_batch_size=32,
-                    rec_batch_size=32,
+                    det_input_size=448,
+                    det_batch_size=16,
+                    rec_batch_size=16,
                     cls_batch_size=32,
                 )
                 for _ in range(max(1, ocr_instance_count))
@@ -587,7 +597,7 @@ class NativeRuntime:
                 basket_input_size=int(config["model"].get("basket_input_size", 640)),
                 basket_area_threshold=float(runtime_config.get("basket_area_threshold", 0.40)),
                 basket_sharpness_threshold=float(runtime_config.get("basket_sharpness_threshold", 55.0)),
-                basket_stable_frames=int(runtime_config.get("basket_stable_frames", 6)),
+                basket_stable_frames=int(runtime_config.get("basket_stable_frames", 12)),
                 basket_capture_timeout=float(runtime_config.get("basket_capture_timeout", 10.0)),
                 basket_resume_delay=float(runtime_config.get("basket_resume_delay", 1.0)),
                 trigger_interval=999999.0,
@@ -835,12 +845,24 @@ class NativeRecognitionApp:
             cv2.moveWindow(window_name, x, y)
             if hasattr(cv2, "WND_PROP_TOPMOST"):
                 cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
+            if hasattr(cv2, "getWindowImageRect"):
+                cv2.waitKey(1)
+                rect_x, rect_y, rect_w, rect_h = cv2.getWindowImageRect(window_name)
+                target_cx = screen_w / 2.0
+                target_cy = screen_h / 2.0
+                actual_cx = rect_x + rect_w / 2.0
+                actual_cy = rect_y + rect_h / 2.0
+                dx = int(round(target_cx - actual_cx))
+                dy = int(round(target_cy - actual_cy))
+                if dx or dy:
+                    cv2.moveWindow(window_name, max(0, x + dx), max(0, y + dy))
+                    cv2.waitKey(1)
         except cv2.error:
             pass
 
     def show_auto_waiting_popup(self, data):
         stable = int(data.get("basket_stable_frames", 0))
-        required = max(1, int(data.get("basket_stable_required", 6)))
+        required = max(1, int(data.get("basket_stable_required", 12)))
         progress = min(1.0, max(0.0, stable / float(required)))
         canvas = np.full((180, 420, 3), (248, 250, 252), dtype=np.uint8)
         image = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
@@ -889,21 +911,24 @@ class NativeRecognitionApp:
         success = is_match_success(payload)
         color = (22, 163, 74) if success else (220, 38, 38)
         title = "匹配通过" if success else "匹配异常"
-        symbol = "√" if success else "×"
-        canvas = np.full((240, 340, 3), (248, 250, 252), dtype=np.uint8)
+        popup_w, popup_h = 480, 360
+        icon_max = 240
+        canvas = np.full((popup_h, popup_w, 3), (248, 250, 252), dtype=np.uint8)
         image = Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(image)
-        draw.rounded_rectangle((10, 10, 330, 230), radius=12, fill=(255, 255, 255), outline=color, width=4)
-        symbol_font = get_font(112)
-        draw.text(((340 - text_width(symbol, symbol_font)) / 2, 28), symbol, font=symbol_font, fill=color)
-        title_font = get_font(28)
-        draw.text(((340 - text_width(title, title_font)) / 2, 160), title, font=title_font, fill=(15, 23, 42))
+        draw.rounded_rectangle((12, 12, popup_w - 12, popup_h - 12), radius=12, fill=(255, 255, 255), outline=color, width=5)
+        icon = load_result_icon(success)
+        if icon is not None:
+            icon.thumbnail((icon_max, icon_max), Image.LANCZOS)
+            image.paste(icon, ((popup_w - icon.width) // 2, (popup_h - icon.height) // 2), icon)
+        title_font = get_font(32)
+        draw.text(((popup_w - text_width(title, title_font)) / 2, popup_h - 54), title, font=title_font, fill=(15, 23, 42))
         popup = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
         cv2.namedWindow(self.result_popup_window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(self.result_popup_window_name, 340, 240)
-        self.center_popup_window(self.result_popup_window_name, 340, 240)
+        cv2.resizeWindow(self.result_popup_window_name, popup_w, popup_h)
+        self.center_popup_window(self.result_popup_window_name, popup_w, popup_h)
         cv2.imshow(self.result_popup_window_name, popup)
-        self.center_popup_window(self.result_popup_window_name, 340, 240)
+        self.center_popup_window(self.result_popup_window_name, popup_w, popup_h)
         self.result_popup_until = time.time() + 4.0
 
     def show_auto_trigger_popup(self, data):
@@ -917,7 +942,7 @@ class NativeRecognitionApp:
             f"第 {int(data.get('trigger_count', 0))} 次触发  |  "
             f"面积 {float(data.get('basket_area_ratio', 0.0)):.1%}  |  "
             f"清晰度 {float(data.get('basket_sharpness', 0.0)):.0f}  |  "
-            f"静止帧 {int(data.get('basket_stable_frames', 0))}/{int(data.get('basket_stable_required', 6))}  |  "
+            f"静止帧 {int(data.get('basket_stable_frames', 0))}/{int(data.get('basket_stable_required', 12))}  |  "
             "等待完成后开始识别"
         )
         draw.text((34, 142), detail, font=get_font(16), fill=(37, 99, 235))
@@ -990,7 +1015,7 @@ class NativeRecognitionApp:
             ("Mode", self.status.get("trigger_mode", "manual"), (37, 99, 235)),
             ("Basket area", f"{float(self.status.get('basket_area_ratio') or 0.0) * 100:.1f}%", (30, 64, 175)),
             ("Sharpness", f"{float(self.status.get('basket_sharpness') or 0.0):.0f}", (30, 64, 175)),
-            ("Stable", f"{int(self.status.get('basket_stable_frames') or 0)}/{int(self.status.get('basket_stable_required') or 6)}", (30, 64, 175)),
+            ("Stable", f"{int(self.status.get('basket_stable_frames') or 0)}/{int(self.status.get('basket_stable_required') or 12)}", (30, 64, 175)),
             ("Capture", f"{int(self.status.get('basket_capture_count') or 0)}/{int(self.status.get('basket_capture_required') or 0)}", (30, 64, 175)),
             ("状态", self.state_label(state), self.state_color(state)),
             ("处理中", processing, (217, 119, 6) if processing == "是" else (22, 163, 74)),

@@ -205,10 +205,10 @@ def init_models(config, args):
 
     classifier = PharmaceuticalBottleClassifier(db_conn=None, device="npu")
     recognizer = RknnOCRRecognizer(
-        det_model_path=str(PROJECT_ROOT / "src" / "identification" / "Det_bs32.rknn"),
+        det_model_path=str(PROJECT_ROOT / "model_det_bs16.rknn"),
         rec_model_path=str(PROJECT_ROOT / "model_ocr_0526.rknn"),
         cls_model_path=str(PROJECT_ROOT / "model_cls_bs32.rknn"),
-        det_batch_size=32,
+        det_batch_size=16,
         rec_batch_size=16,
         cls_batch_size=32,
     )

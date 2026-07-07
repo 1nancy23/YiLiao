@@ -6,7 +6,7 @@ runtime:
   trigger_mode: manual
   basket_area_threshold: 0.40
   basket_sharpness_threshold: 55
-  basket_stable_frames: 6
+  basket_stable_frames: 12
   basket_capture_timeout: 10.0
   basket_resume_delay: 1.0
 

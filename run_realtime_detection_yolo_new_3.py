@@ -982,7 +982,7 @@ def run_realtime_detection(
         basket_input_size=640,
         basket_area_threshold=0.40,
         basket_sharpness_threshold=55.0,
-        basket_stable_frames=6,
+        basket_stable_frames=12,
         basket_capture_timeout=10.0,
         basket_resume_delay=1.0,
 ):
@@ -1175,6 +1175,7 @@ def run_realtime_detection(
     last_trigger_time = time.time()
     basket_resume_at = [0.0]
     last_basket_status = {}
+    auto_capture_next_frame = False
 
     print("\n" + "=" * 60)
     print("🚀 实时目标检测已启动 YOLOv8 + 切片处理")
@@ -2137,23 +2138,32 @@ def run_realtime_detection(
             basket_monitoring = (
                 basket_trigger is not None
                 and not is_processing.is_set()
+                and not auto_capture_next_frame
                 and current_time >= basket_resume_at[0]
             )
             if active_trigger_mode == "manual":
                 # Manual mode: skip basket NPU inference entirely — no auto-trigger needed
+                auto_capture_next_frame = False
                 last_basket_status = {}
                 if manual_trigger_event is not None and manual_trigger_event.is_set():
                     manual_trigger_event.clear()
                     should_trigger = True
                     trigger_label = "manual"
             elif active_trigger_mode == "auto":
-                if basket_trigger is not None and basket_monitoring:
+                if auto_capture_next_frame:
+                    # The threshold frame only confirms that the scene is static.
+                    # Recognition uses the first raw frame captured afterwards.
+                    trigger_snapshot_frames = [[frames[-1].copy()]]
+                    trigger_snapshot_preds = [[predictions[-1] if predictions else []]]
+                    auto_capture_next_frame = False
+                    should_trigger = True
+                    trigger_label = "basket_auto"
+                elif basket_trigger is not None and basket_monitoring:
                     last_basket_status = basket_trigger.update(frames[-1])
                     if last_basket_status.get("triggered"):
-                        trigger_snapshot_frames = [[frames[-1]]]
-                        trigger_snapshot_preds = [[predictions[-1] if predictions else []]]
-                        should_trigger = True
-                        trigger_label = "basket_auto"
+                        # Remove all frames queued before the static threshold.
+                        video_stream.frame_buffer.clear()
+                        auto_capture_next_frame = True
 
             if should_trigger:
                 if (not is_processing.is_set()) or (
@@ -2172,7 +2182,7 @@ def run_realtime_detection(
                         basket_capture_count=0,
                         basket_capture_required=0,
                         basket_stable_frames=int(last_basket_status.get("stable_frames", 0)),
-                        basket_stable_required=int(last_basket_status.get("stable_required", 6)),
+                        basket_stable_required=int(last_basket_status.get("stable_required", 12)),
                         basket_stable_enough=bool(last_basket_status.get("stable_enough", False)),
                     )
 
@@ -2307,15 +2317,16 @@ def run_realtime_detection(
                 basket_area_ratio=float(last_basket_status.get("area_ratio", 0.0)),
                 basket_sharpness=float(last_basket_status.get("sharpness", 0.0)),
                 basket_stable_frames=int(last_basket_status.get("stable_frames", 0)),
-                basket_stable_required=int(last_basket_status.get("stable_required", 6)),
+                basket_stable_required=int(last_basket_status.get("stable_required", 12)),
                 basket_stable_enough=bool(last_basket_status.get("stable_enough", False)),
                 basket_armed=bool(last_basket_status.get("armed", True)),
-                basket_capture_pending=False,
+                basket_capture_pending=bool(auto_capture_next_frame),
                 basket_capture_count=0,
                 basket_capture_required=0,
                 basket_monitoring=bool(
                     active_trigger_mode == "auto"
                     and not is_processing.is_set()
+                    and not auto_capture_next_frame
                     and current_time >= basket_resume_at[0]
                 ),
             )

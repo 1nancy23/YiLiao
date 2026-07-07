@@ -168,30 +168,40 @@ class RknnOCRRecognizer:
         rec_model_path=None,
         char_dict_path=None,
         cls_model_path=None,
+        det_input_size=None,
         det_batch_size=None,
         rec_batch_size=None,
         cls_batch_size=None,
         det_core=RKNNLite.NPU_CORE_1,
+        det_parallel_cores=None,
         rec_core=RKNNLite.NPU_CORE_2,
+        rec_parallel_cores=None,
         cls_core=RKNNLite.NPU_CORE_1,
     ):
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        det_bs16_root_path = os.path.join(root, "model_det_bs16.rknn")
         det_bs32_path = os.path.join(root, "src", "identification", "Det_bs32.rknn")
         det_bs8_path = os.path.join(root, "src", "identification", "Det_bs8.rknn")
         det_bs1_path = os.path.join(root, "src", "identification", "Det_bs1.rknn")
         self.det_model_path = det_model_path or _first_existing_path([
+            det_bs16_root_path,
             det_bs32_path,
             det_bs8_path,
             det_bs1_path,
         ])
         inferred_det_batch_size = _batch_size_from_path(self.det_model_path, default=1)
+        if det_input_size is None:
+            det_input_size = 448
+        self.det_input_size = max(1, int(det_input_size))
 
+        rec_bs16_path = os.path.join(root, "model_ocr_bs16.rknn")
         rec_bs32_path = os.path.join(root, "model_ocr_0624_bs32.rknn")
-        rec_bs16_path = os.path.join(root, "model_ocr_0526.rknn")
+        rec_legacy_bs16_path = os.path.join(root, "model_ocr_0526.rknn")
         rec_bs64_path = os.path.join(root, "model_ocr_0602_bs64.rknn")
         self.rec_model_path = rec_model_path or _first_existing_path([
-            rec_bs32_path,
             rec_bs16_path,
+            rec_bs32_path,
+            rec_legacy_bs16_path,
             rec_bs64_path,
         ])
         inferred_rec_batch_size = _batch_size_from_path(
@@ -220,25 +230,57 @@ class RknnOCRRecognizer:
         self._det_batch_supported = self.det_batch_size > 1
         default_workers = 1
         self.cpu_workers = max(1, int(os.environ.get("YILIAO_OCR_CPU_WORKERS", default_workers)))
-        self.det_lock = get_rknn_lock(det_core, secondary_domain=True)
-        self.rec_lock = get_rknn_lock(rec_core, secondary_domain=True)
         self.cls_lock = get_rknn_lock(cls_core, secondary_domain=True)
 
-        self.det_rknn = RKNNLite()
-        ret = self.det_rknn.load_rknn(self.det_model_path)
-        if ret != 0:
-            raise RuntimeError(f"Load OCR det model failed: {self.det_model_path}")
-        ret = self.det_rknn.init_runtime(core_mask=det_core)
-        if ret != 0:
-            raise RuntimeError("Init OCR det runtime failed")
+        if det_parallel_cores is None:
+            det_parallel_cores = (RKNNLite.NPU_CORE_1, RKNNLite.NPU_CORE_2)
+        det_parallel_cores = tuple(dict.fromkeys(int(core) for core in det_parallel_cores))
+        if not det_parallel_cores:
+            det_parallel_cores = (int(det_core),)
+        self.det_workers = []
+        for worker_index, core in enumerate(det_parallel_cores):
+            det_rknn = RKNNLite()
+            ret = det_rknn.load_rknn(self.det_model_path)
+            if ret != 0:
+                raise RuntimeError(f"Load OCR det model failed: {self.det_model_path}")
+            ret = det_rknn.init_runtime(core_mask=core)
+            if ret != 0:
+                raise RuntimeError(f"Init OCR det runtime failed on core mask {core}")
+            self.det_workers.append({
+                "index": worker_index,
+                "core": core,
+                "rknn": det_rknn,
+                "lock": get_rknn_lock(core, secondary_domain=False),
+            })
+        self.det_rknn = self.det_workers[0]["rknn"]
+        self.det_lock = self.det_workers[0]["lock"]
 
-        self.rec_rknn = RKNNLite()
-        ret = self.rec_rknn.load_rknn(self.rec_model_path)
-        if ret != 0:
-            raise RuntimeError(f"Load OCR rec model failed: {self.rec_model_path}")
-        ret = self.rec_rknn.init_runtime(core_mask=rec_core)
-        if ret != 0:
-            raise RuntimeError("Init OCR rec runtime failed")
+        if rec_parallel_cores is None:
+            rec_parallel_cores = (
+                RKNNLite.NPU_CORE_0,
+                RKNNLite.NPU_CORE_1,
+                RKNNLite.NPU_CORE_2,
+            )
+        rec_parallel_cores = tuple(dict.fromkeys(int(core) for core in rec_parallel_cores))
+        if not rec_parallel_cores:
+            rec_parallel_cores = (int(rec_core),)
+        self.rec_workers = []
+        for worker_index, core in enumerate(rec_parallel_cores):
+            rec_rknn = RKNNLite()
+            ret = rec_rknn.load_rknn(self.rec_model_path)
+            if ret != 0:
+                raise RuntimeError(f"Load OCR rec model failed: {self.rec_model_path}")
+            ret = rec_rknn.init_runtime(core_mask=core)
+            if ret != 0:
+                raise RuntimeError(f"Init OCR rec runtime failed on core mask {core}")
+            self.rec_workers.append({
+                "index": worker_index,
+                "core": core,
+                "rknn": rec_rknn,
+                "lock": get_rknn_lock(core, secondary_domain=False),
+            })
+        self.rec_rknn = self.rec_workers[0]["rknn"]
+        self.rec_lock = self.rec_workers[0]["lock"]
 
         self.cls_rknn = RKNNLite()
         ret = self.cls_rknn.load_rknn(self.cls_model_path)
@@ -257,7 +299,31 @@ class RknnOCRRecognizer:
         self.detvis_save_dir = os.environ.get("YILIAO_DETVIS_SAVE_DIR", "").strip()
 
     def release(self):
-        for attr in ("det_rknn", "rec_rknn", "cls_rknn"):
+        for worker in getattr(self, "det_workers", []):
+            model = worker.get("rknn")
+            if model is None:
+                continue
+            try:
+                model.release()
+            except Exception:
+                pass
+            worker["rknn"] = None
+        self.det_workers = []
+        self.det_rknn = None
+
+        for worker in getattr(self, "rec_workers", []):
+            model = worker.get("rknn")
+            if model is None:
+                continue
+            try:
+                model.release()
+            except Exception:
+                pass
+            worker["rknn"] = None
+        self.rec_workers = []
+        self.rec_rknn = None
+
+        for attr in ("cls_rknn",):
             model = getattr(self, attr, None)
             if model is None:
                 continue
@@ -557,42 +623,77 @@ class RknnOCRRecognizer:
             })
         return results
 
+    def _run_det_batch_jobs(self, jobs):
+        self._last_det_worker_infer = 0.0
+        self._last_det_workers = 0
+        if not jobs:
+            return [], 0.0
+
+        workers = getattr(self, "det_workers", None) or [{
+            "index": 0,
+            "core": None,
+            "rknn": self.det_rknn,
+            "lock": self.det_lock,
+        }]
+        worker_count = max(1, len(workers))
+        active_workers = min(worker_count, len(jobs))
+
+        def run_job(job):
+            worker = workers[job["job_index"] % worker_count]
+            t = time.perf_counter()
+            with worker["lock"]:
+                det_outputs = worker["rknn"].inference(inputs=[job["det_batch"]])
+            elapsed = time.perf_counter() - t
+            if det_outputs is None:
+                raise RuntimeError("OCR det RKNN inference returned None")
+            return job["job_index"], det_outputs, elapsed
+
+        t_wall = time.perf_counter()
+        if active_workers <= 1:
+            results = [run_job(job) for job in jobs]
+        else:
+            with ThreadPoolExecutor(max_workers=active_workers) as executor:
+                results = list(executor.map(run_job, jobs))
+        infer_wall = time.perf_counter() - t_wall
+
+        ordered_outputs = [None] * len(jobs)
+        worker_infer = 0.0
+        for job_index, det_outputs, elapsed in results:
+            ordered_outputs[job_index] = det_outputs
+            worker_infer += elapsed
+
+        self._last_det_worker_infer = worker_infer
+        self._last_det_workers = active_workers
+        return ordered_outputs, infer_wall
+
     def _detect_regions_batch(self, images, module, padding):
         all_regions = []
         all_boxes = []
         total_infer = 0.0
         batch_size = max(1, int(self.det_batch_size)) if self._det_batch_supported else 1
+        jobs = []
+        batch_images_list = []
 
         for start in range(0, len(images), batch_size):
             batch_images = images[start:start + batch_size]
-            det_batch = np.empty((batch_size, 448, 448, 3), dtype=np.uint8)
+            det_batch = np.empty((batch_size, self.det_input_size, self.det_input_size, 3), dtype=np.uint8)
             if len(batch_images) < batch_size:
                 det_batch[len(batch_images):] = 0
             for offset, image in enumerate(batch_images):
-                det_input = cv2.resize(image, (448, 448))
-                self._save_debug_image("det_input_448", det_input)
+                det_input = cv2.resize(image, (self.det_input_size, self.det_input_size))
+                self._save_debug_image(f"det_input_{self.det_input_size}", det_input)
                 det_batch[offset] = det_input
 
-            t = time.perf_counter()
-            try:
-                with self.det_lock:
-                    det_outputs = self.det_rknn.inference(inputs=[det_batch])
-                if det_outputs is None:
-                    raise RuntimeError("OCR det RKNN inference returned None")
-            except Exception:
-                if batch_size > 1:
-                    self._det_batch_supported = False
-                    fallback_regions, fallback_boxes, fallback_infer = self._detect_regions_batch(
-                        images[start:],
-                        module,
-                        padding,
-                    )
-                    all_regions.extend(fallback_regions)
-                    all_boxes.extend(fallback_boxes)
-                    total_infer += fallback_infer
-                    break
-                raise
-            total_infer += time.perf_counter() - t
+            jobs.append({
+                "job_index": len(jobs),
+                "det_batch": det_batch,
+            })
+            batch_images_list.append(batch_images)
+
+        det_outputs_list, infer_wall = self._run_det_batch_jobs(jobs)
+        total_infer += infer_wall
+
+        for batch_images, det_outputs in zip(batch_images_list, det_outputs_list):
             det_maps = _batch_det_maps(det_outputs, len(batch_images))
 
             for image, det_map in zip(batch_images, det_maps):
@@ -660,9 +761,13 @@ class RknnOCRRecognizer:
         blank_image = np.zeros((self.rec_input_size[1], self.rec_input_size[0], 3), dtype=np.uint8)
         self._last_mixed_rec_preprocess = 0.0
         self._last_mixed_rec_infer = 0.0
+        self._last_mixed_rec_worker_infer = 0.0
         self._last_mixed_rec_decode = 0.0
         self._last_mixed_rec_pad_inputs = 0
+        self._last_mixed_rec_workers = len(getattr(self, "rec_workers", []) or [None])
 
+        jobs = []
+        job_index = 0
         for start in range(0, len(regions), batch_size):
             batch_regions = regions[start:start + batch_size]
             batch_modules = modules[start:start + batch_size]
@@ -681,12 +786,48 @@ class RknnOCRRecognizer:
                 batch_input[offset] = batch_image
             if valid_count < batch_size:
                 batch_input[valid_count:] = blank_image
+            jobs.append({
+                "job_index": job_index,
+                "start": start,
+                "modules": batch_modules,
+                "regions": batch_regions,
+                "valid_count": valid_count,
+                "batch_input": batch_input,
+            })
+            job_index += 1
+
+        workers = getattr(self, "rec_workers", None) or [{
+            "index": 0,
+            "core": None,
+            "rknn": self.rec_rknn,
+            "lock": self.rec_lock,
+        }]
+
+        def run_rec_job(job):
+            worker = workers[job["job_index"] % len(workers)]
             t_infer = time.perf_counter()
-            with self.rec_lock:
-                rec_outputs = self.rec_rknn.inference(inputs=[batch_input])
-            self._last_mixed_rec_infer += time.perf_counter() - t_infer
+            with worker["lock"]:
+                rec_outputs = worker["rknn"].inference(inputs=[job["batch_input"]])
+            infer_elapsed = time.perf_counter() - t_infer
             if rec_outputs is None:
                 raise RuntimeError("OCR rec RKNN inference returned None")
+            return job, rec_outputs, infer_elapsed, worker.get("core")
+
+        t_infer_all = time.perf_counter()
+        if len(jobs) == 1 or len(workers) == 1:
+            rec_job_results = [run_rec_job(job) for job in jobs]
+        else:
+            with ThreadPoolExecutor(max_workers=len(workers)) as executor:
+                rec_job_results = list(executor.map(run_rec_job, jobs))
+        self._last_mixed_rec_infer += time.perf_counter() - t_infer_all
+        self._last_mixed_rec_worker_infer += sum(item[2] for item in rec_job_results)
+
+        rec_job_results.sort(key=lambda item: item[0]["job_index"])
+        for job, rec_outputs, _infer_elapsed, _core in rec_job_results:
+            start = job["start"]
+            batch_modules = job["modules"]
+            batch_regions = job["regions"]
+            valid_count = job["valid_count"]
             rec_output = tight_ocr.normalize_rec_output(rec_outputs[0], batch_size)
 
             t_decode = time.perf_counter()
@@ -967,6 +1108,8 @@ class RknnOCRRecognizer:
 
         self.last_timing[f"{timing_prefix}rknn_det"] = time.perf_counter() - t
         self.last_timing[f"{timing_prefix}rknn_det_infer"] = det_infer
+        self.last_timing[f"{timing_prefix}rknn_det_worker_infer"] = getattr(self, "_last_det_worker_infer", 0.0)
+        self.last_timing[f"{timing_prefix}det_workers"] = getattr(self, "_last_det_workers", 1)
         self.last_timing[f"{timing_prefix}text_regions"] = len(flat_regions)
 
         texts_list = [[] for _ in images]
@@ -1002,32 +1145,32 @@ class RknnOCRRecognizer:
         total_preprocess = 0.0
         total_postprocess = 0.0
         total_det_pad_inputs = 0
+        det_jobs = []
+        chunks = []
 
         for start in range(0, len(candidates), batch_size):
             chunk = candidates[start:start + batch_size]
             total_det_pad_inputs += batch_size - len(chunk)
             t_pre = time.perf_counter()
-            det_batch = np.empty((batch_size, 448, 448, 3), dtype=np.uint8)
+            det_batch = np.empty((batch_size, self.det_input_size, self.det_input_size, 3), dtype=np.uint8)
             if len(chunk) < batch_size:
                 det_batch[len(chunk):] = 0
             for offset, item in enumerate(chunk):
-                det_input = cv2.resize(item["image"], (448, 448))
-                self._save_debug_image("det_input_448", det_input)
+                det_input = cv2.resize(item["image"], (self.det_input_size, self.det_input_size))
+                self._save_debug_image(f"det_input_{self.det_input_size}", det_input)
                 det_batch[offset] = det_input
 
             total_preprocess += time.perf_counter() - t_pre
-            t = time.perf_counter()
-            try:
-                with self.det_lock:
-                    det_outputs = self.det_rknn.inference(inputs=[det_batch])
-                if det_outputs is None:
-                    raise RuntimeError("OCR det RKNN inference returned None")
-            except Exception:
-                if batch_size > 1:
-                    self._det_batch_supported = False
-                    return self._recognize_mixed_candidates_batch(candidates, timing_prefix)
-                raise
-            total_infer += time.perf_counter() - t
+            det_jobs.append({
+                "job_index": len(det_jobs),
+                "det_batch": det_batch,
+            })
+            chunks.append(chunk)
+
+        det_outputs_list, infer_wall = self._run_det_batch_jobs(det_jobs)
+        total_infer += infer_wall
+
+        for chunk, det_outputs in zip(chunks, det_outputs_list):
             det_maps = _batch_det_maps(det_outputs, len(chunk))
 
             t_post = time.perf_counter()
@@ -1045,9 +1188,11 @@ class RknnOCRRecognizer:
         self.last_timing[f"{timing_prefix}rknn_det"] = time.perf_counter() - t_det
         self.last_timing[f"{timing_prefix}rknn_det_preprocess"] = total_preprocess
         self.last_timing[f"{timing_prefix}rknn_det_infer"] = total_infer
+        self.last_timing[f"{timing_prefix}rknn_det_worker_infer"] = getattr(self, "_last_det_worker_infer", 0.0)
         self.last_timing[f"{timing_prefix}rknn_det_postprocess"] = total_postprocess
         self.last_timing[f"{timing_prefix}det_inputs"] = len(candidates)
         self.last_timing[f"{timing_prefix}det_pad_inputs"] = total_det_pad_inputs
+        self.last_timing[f"{timing_prefix}det_workers"] = getattr(self, "_last_det_workers", 1)
         self.last_timing[f"{timing_prefix}det_batches"] = int(np.ceil(len(candidates) / float(max(1, batch_size))))
         self.last_timing[f"{timing_prefix}text_regions"] = len(flat_regions)
 
@@ -1065,9 +1210,11 @@ class RknnOCRRecognizer:
         self.last_timing[f"{timing_prefix}rknn_rec"] = time.perf_counter() - t_rec
         self.last_timing[f"{timing_prefix}rknn_rec_preprocess"] = getattr(self, "_last_mixed_rec_preprocess", 0.0)
         self.last_timing[f"{timing_prefix}rknn_rec_infer"] = getattr(self, "_last_mixed_rec_infer", 0.0)
+        self.last_timing[f"{timing_prefix}rknn_rec_worker_infer"] = getattr(self, "_last_mixed_rec_worker_infer", 0.0)
         self.last_timing[f"{timing_prefix}rknn_rec_decode"] = getattr(self, "_last_mixed_rec_decode", 0.0)
         self.last_timing[f"{timing_prefix}rec_inputs"] = len(flat_regions)
         self.last_timing[f"{timing_prefix}rec_pad_inputs"] = getattr(self, "_last_mixed_rec_pad_inputs", 0)
+        self.last_timing[f"{timing_prefix}rec_workers"] = getattr(self, "_last_mixed_rec_workers", 1)
         self.last_timing[f"{timing_prefix}rec_batches"] = int(np.ceil(len(flat_regions) / float(max(1, self.rec_batch_size))))
         for owner, item in zip(owners, rec_results):
             if item is None:
