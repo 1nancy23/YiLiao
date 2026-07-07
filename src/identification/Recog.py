@@ -7,8 +7,16 @@ import pickle
 import pymysql
 import time
 import hashlib
-from rknnlite.api import RKNNLite
 from src.identification.rknn_runtime_lock import get_rknn_lock
+
+try:
+    from rknnlite.api import RKNNLite
+except ModuleNotFoundError:
+    class RKNNLite:
+        NPU_CORE_2 = 0
+
+        def __init__(self, *args, **kwargs):
+            raise ModuleNotFoundError("rknnlite is required for NPU rotation classification")
 
 
 def _runtime_logs_enabled():
@@ -17,6 +25,7 @@ def _runtime_logs_enabled():
 
 def _runtime_log(*args, **kwargs):
     if _runtime_logs_enabled():
+
         print(*args, **kwargs)
 
 
@@ -208,6 +217,8 @@ class PharmaceuticalBottleClassifier:
     def _extract_features_from_image(self, image):
         _runtime_log("image",image.shape)
         kp, desc = self._extract_sift_features(image)
+        if desc is None:
+            return kp[:320], None
         return kp[:320], desc[:320]
 
     def _match_sift_features(self, desc1, desc2):
@@ -404,7 +415,8 @@ class PharmaceuticalBottleClassifier:
                     sift4 MEDIUMBLOB,
                     sift5 MEDIUMBLOB,
                     sift6 MEDIUMBLOB,
-                    deep_avg MEDIUMBLOB
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 )
             ''')
         self.conn.commit()
@@ -473,7 +485,7 @@ class PharmaceuticalBottleClassifier:
             raise ValueError("db_conn is required when feature cache is missing or invalid")
 
         query = '''
-            SELECT medicine_name, sift1, sift2, sift3, sift4, sift5, sift6, deep_avg
+            SELECT medicine_name, sift1, sift2, sift3, sift4, sift5, sift6
             FROM drugs
         '''
         with self.conn.cursor() as cursor:
@@ -490,13 +502,11 @@ class PharmaceuticalBottleClassifier:
                 if isinstance(name, bytes):
                     name = name.decode('utf-8')
                 sift_blobs = [row[f'sift{i}'] for i in range(1, 7)]
-                deep_blob = row['deep_avg']
             else:
                 name = row[0]
                 if isinstance(name, bytes):
                     name = name.decode('utf-8')
                 sift_blobs = list(row[1:7])
-                deep_blob = row[7]
 
             # 解析 SIFT 特征
             sift_list = []
@@ -508,15 +518,7 @@ class PharmaceuticalBottleClassifier:
                     except Exception:
                         pass
             self._templates_cache[name] = sift_list
-
-            # 解析深度特征
-            if deep_blob is not None:
-                try:
-                    self._deep_avg_cache[name] = pickle.loads(deep_blob)
-                except Exception:
-                    self._deep_avg_cache[name] = None
-            else:
-                self._deep_avg_cache[name] = None
+            self._deep_avg_cache[name] = None
 
         if cache_path:
             try:
@@ -586,7 +588,8 @@ class PharmaceuticalBottleClassifier:
             if img is None:
                 continue
             kp, desc = self._extract_features_from_image(img)
-            sift_list.append(pickle.dumps(desc))
+            if desc is not None:
+                sift_list.append(pickle.dumps(desc))
 
         while len(sift_list) < 6:
             sift_list.append(None)
@@ -594,17 +597,16 @@ class PharmaceuticalBottleClassifier:
         with self.conn.cursor() as cursor:
             cursor.execute('''
                 INSERT INTO drugs 
-                    (medicine_name, sift1, sift2, sift3, sift4, sift5, sift6, deep_avg)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (medicine_name, sift1, sift2, sift3, sift4, sift5, sift6)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     sift1 = VALUES(sift1),
                     sift2 = VALUES(sift2),
                     sift3 = VALUES(sift3),
                     sift4 = VALUES(sift4),
                     sift5 = VALUES(sift5),
-                    sift6 = VALUES(sift6),
-                    deep_avg = VALUES(deep_avg)
-            ''', (medicine_name, *sift_list, None))
+                    sift6 = VALUES(sift6)
+            ''', (medicine_name, *sift_list))
         self.conn.commit()
 
         # ========== 录入后自动刷新缓存 ==========

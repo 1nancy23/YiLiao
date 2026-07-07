@@ -4,6 +4,7 @@ project:
 runtime:
   trigger_interval: 5
   trigger_mode: manual
+  video_path: ""
   basket_area_threshold: 0.40
   basket_sharpness_threshold: 55
   basket_stable_frames: 12
@@ -59,6 +60,8 @@ db_config: # 数据库配置
 table_config: # 数据表配置
   drug_table: drugs
   drug_column: medicine_name
-  patient_table: patients
-  patient_column: name
+  patient_table: batches
+  patient_column: patient_name
+  batch_table: batches
+  batch_medicines_column: medicines_json
 

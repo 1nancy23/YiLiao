@@ -35,11 +35,6 @@ def _append_json_like_log(prefix, payload):
 def run_auto_headless(check_only=False):
     _set_default_env()
 
-    from run_realtime_detection_yolo_new_3 import run_realtime_detection
-    from src.identification.DrugMatcher import DrugMatcher
-    from src.identification.Recog import PharmaceuticalBottleClassifier
-    from src.identification.rknn_ocr_adapter import RknnOCRRecognizer
-
     config_path = os.path.join(PROJECT_ROOT, "config.yaml")
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
@@ -49,6 +44,7 @@ def run_auto_headless(check_only=False):
         "YILIAO_RECOGNITION_WORKERS",
         runtime_config.get("recognition_workers", 1),
     ))
+    video_path = os.environ.get("YILIAO_VIDEO_PATH", str(runtime_config.get("video_path", "") or "")).strip()
     quiet_ocr = env_bool("YILIAO_QUIET_OCR", bool(runtime_config.get("quiet_ocr", True)))
     ocr_instance_count = int(os.environ.get(
         "YILIAO_OCR_INSTANCES",
@@ -68,15 +64,44 @@ def run_auto_headless(check_only=False):
             raise FileNotFoundError(full_path)
 
     if check_only:
+        video_info = None
+        if video_path:
+            import cv2
+            full_video_path = video_path if os.path.isabs(video_path) else os.path.join(PROJECT_ROOT, video_path)
+            if not os.path.exists(full_video_path):
+                raise FileNotFoundError(full_video_path)
+            cap = cv2.VideoCapture(full_video_path)
+            try:
+                if not cap.isOpened():
+                    raise RuntimeError(f"failed to open video file: {full_video_path}")
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    raise RuntimeError(f"failed to read first video frame: {full_video_path}")
+                video_info = {
+                    "path": full_video_path,
+                    "width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                    "height": int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+                    "fps": float(cap.get(cv2.CAP_PROP_FPS) or 0.0),
+                    "frames": int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0),
+                    "first_frame_shape": tuple(int(value) for value in frame.shape),
+                }
+            finally:
+                cap.release()
         _append_json_like_log("check", {
             "project": PROJECT_ROOT,
             "trigger_mode": "auto",
             "headless": True,
+            "video": video_info,
             "yolo": config["model"].get("yolo_rknn_path"),
             "yolo_input_size": config["model"].get("yolo_input_size"),
             "basket_stable_frames": runtime_config.get("basket_stable_frames"),
         })
         return
+
+    from run_realtime_detection_yolo_new_3 import run_realtime_detection
+    from src.identification.DrugMatcher import DrugMatcher
+    from src.identification.Recog import PharmaceuticalBottleClassifier
+    from src.identification.rknn_ocr_adapter import RknnOCRRecognizer
 
     conn = None
     classifier = None
@@ -130,6 +155,8 @@ def run_auto_headless(check_only=False):
             drug_column=tables["drug_column"],
             patient_table=tables["patient_table"],
             patient_column=tables["patient_column"],
+            batch_table=tables.get("batch_table", "batches"),
+            batch_medicines_column=tables.get("batch_medicines_column", "medicines_json"),
         )
 
         det_model_path = os.path.join(PROJECT_ROOT, "model_det_bs16.rknn")
@@ -184,6 +211,7 @@ def run_auto_headless(check_only=False):
             trigger_interval=999999.0,
             recognition_workers=recognition_workers,
             classifier_thread_safe=False,
+            video_path=video_path,
             quiet_ocr=quiet_ocr,
             headless=True,
             trigger_mode="auto",
@@ -212,7 +240,10 @@ def run_auto_headless(check_only=False):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true", help="validate paths and config without starting RTSP loop")
+    parser.add_argument("--video", default="", help="run detection from a local video file instead of RTSP")
     args = parser.parse_args()
+    if args.video:
+        os.environ["YILIAO_VIDEO_PATH"] = os.path.abspath(args.video)
     run_auto_headless(check_only=args.check)
 
 

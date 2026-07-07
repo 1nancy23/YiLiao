@@ -755,6 +755,72 @@ DISPLAY_MAX_WIDTH = 1024
 DISPLAY_MAX_HEIGHT = 600
 
 
+class _LocalVideoInfo:
+    def __init__(self, frame_width=0, frame_height=0):
+        self.frame_width = int(frame_width or 0)
+        self.frame_height = int(frame_height or 0)
+
+
+class LocalVideoStream:
+    """Small adapter that exposes the same methods used from VideoStream."""
+
+    def __init__(self, video_path, target_fps=15):
+        self.video_path = os.path.abspath(video_path)
+        self.target_fps = float(target_fps or 0)
+        self.cap = None
+        self.running = False
+        self.connected = False
+        self.frame_buffer = deque()
+        self.stream_reader = _LocalVideoInfo()
+        self._last_frame_at = 0.0
+
+    def start(self):
+        if not os.path.exists(self.video_path):
+            raise FileNotFoundError(f"video file not found: {self.video_path}")
+        self.cap = cv2.VideoCapture(self.video_path)
+        self.connected = bool(self.cap.isOpened())
+        if not self.connected:
+            raise ConnectionError(f"failed to open video file: {self.video_path}")
+        self.stream_reader = _LocalVideoInfo(
+            self.cap.get(cv2.CAP_PROP_FRAME_WIDTH),
+            self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT),
+        )
+        source_fps = float(self.cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        if self.target_fps <= 0 and source_fps > 0:
+            self.target_fps = source_fps
+        self.running = True
+
+    def is_connected(self):
+        return self.connected
+
+    def get_batch(self, batch_size=1):
+        if not self.running or self.cap is None:
+            return []
+        frames = []
+        for _ in range(max(1, int(batch_size or 1))):
+            ok, frame = self.cap.read()
+            if not ok or frame is None:
+                self.running = False
+                break
+            frames.append(frame)
+        if frames and self.target_fps > 0:
+            min_interval = len(frames) / self.target_fps
+            now = time.time()
+            elapsed = now - self._last_frame_at if self._last_frame_at else min_interval
+            if elapsed < min_interval:
+                time.sleep(min_interval - elapsed)
+            self._last_frame_at = time.time()
+        return frames
+
+    def stop(self):
+        self.running = False
+        self.connected = False
+        self.frame_buffer.clear()
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+
+
 def _first_text(value):
     if value is None:
         return None
@@ -783,16 +849,17 @@ def _resolve_latest_patient_batch_id(drug_matcher, patient_name):
     conn = getattr(drug_matcher, "conn", None)
     if conn is None or not patient_name:
         return None
+    batch_table = getattr(drug_matcher, "batch_table", "batches")
+    patient_column = getattr(drug_matcher, "patient_column", "patient_name")
     if hasattr(conn, "ping"):
         conn.ping(reconnect=True)
     with conn.cursor() as cursor:
         cursor.execute(
-            """
-            SELECT p.patient_id, b.batch_id
-            FROM patients p
-            JOIN batches b ON b.patient_id = p.patient_id
-            WHERE p.name = %s
-            ORDER BY b.batch_id DESC
+            f"""
+            SELECT batch_id
+            FROM {batch_table}
+            WHERE {patient_column} = %s
+            ORDER BY batch_id DESC
             LIMIT 1
             """,
             (patient_name,),
@@ -800,7 +867,7 @@ def _resolve_latest_patient_batch_id(drug_matcher, patient_name):
         row = cursor.fetchone()
     if not row:
         return None
-    return row["batch_id"] if isinstance(row, dict) else row[1]
+    return row["batch_id"] if isinstance(row, dict) else row[0]
 
 
 def _resize_for_display(frame, display_scale=1.0, max_width=DISPLAY_MAX_WIDTH, max_height=DISPLAY_MAX_HEIGHT):
@@ -963,6 +1030,7 @@ def run_realtime_detection(
         device=None,
         trigger_interval=15,
         classifier_thread_safe=True,
+        video_path=None,
         single_image_path=None,
         single_image_output_json="./realtime_single_005_result.json",
         recognition_workers=1,
@@ -1065,37 +1133,43 @@ def run_realtime_detection(
     render_detection_frames = save_video or frame_callback is not None or not headless
 
     # ============================================================
-    # RTSP 连接
+    # Video source connection
     # ============================================================
 
     video_stream = None
     processor = None
     if not single_image_path:
-        rtsp_url = (
-            f"rtsp://{username}:{password}@{ip_address}:{port}"
-            f"/Streaming/Channels/{channel}"
-        )
+        video_path = str(video_path or "").strip()
+        if video_path:
+            print(f"Video file: {video_path}")
+            video_stream = LocalVideoStream(video_path, target_fps=target_fps)
+            video_stream.start()
+        else:
+            rtsp_url = (
+                f"rtsp://{username}:{password}@{ip_address}:{port}"
+                f"/Streaming/Channels/{channel}"
+            )
 
-        print(
-            f"RTSP: rtsp://{username}:****@{ip_address}:{port}"
-            f"/Streaming/Channels/{channel}"
-        )
+            print(
+                f"RTSP: rtsp://{username}:****@{ip_address}:{port}"
+                f"/Streaming/Channels/{channel}"
+            )
 
-        video_stream = VideoStream(rtsp_url, target_fps=target_fps)
-        video_stream.start()
+            video_stream = VideoStream(rtsp_url, target_fps=target_fps)
+            video_stream.start()
 
-        print("Connecting RTSP stream...")
+            print("Connecting RTSP stream...")
 
-        timeout = 10
-        start_time = time.time()
+            timeout = 10
+            start_time = time.time()
 
-        while not video_stream.is_connected() and time.time() - start_time < timeout:
-            time.sleep(0.1)
+            while not video_stream.is_connected() and time.time() - start_time < timeout:
+                time.sleep(0.1)
 
-        if not video_stream.is_connected():
-            print("RTSP connection timeout")
-            video_stream.stop()
-            return
+            if not video_stream.is_connected():
+                print("RTSP connection timeout")
+                video_stream.stop()
+                return
     # ============================================================
     # YOLO 处理器
     # ============================================================

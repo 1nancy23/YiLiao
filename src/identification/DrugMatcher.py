@@ -1,11 +1,16 @@
 ﻿import os
 import re
 
+import json
+
 import pymysql
 from fuzzywuzzy import fuzz, process
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 
-from src.identification.OCRRecognizer import OCRRecognizer
+if TYPE_CHECKING:
+    from src.identification.OCRRecognizer import OCRRecognizer
+else:
+    OCRRecognizer = Any
 
 
 def _runtime_logs_enabled():
@@ -25,13 +30,17 @@ class DrugMatcher:
     """
 
     def __init__(self, db_conn, drug_table='drugs', drug_column='medicine_name',
-                 patient_table='patients', patient_column='name', cache_drugs=True):
+                 patient_table='batches', patient_column='patient_name',
+                 batch_table='batches', batch_medicines_column='medicines_json',
+                 cache_drugs=True):
         """
         :param db_conn: 数据库连接对象（应为 DictCursor 连接）
         :param table: 药品表名
         :param column: 药品名称列名
-        :param patient_table: 患者表名
-        :param patient_column: 患者名称列名
+        :param patient_table: 患者姓名来源表。两表结构下为 batches
+        :param patient_column: 患者姓名列名。两表结构下为 patient_name
+        :param batch_table: 批次表名
+        :param batch_medicines_column: 批次药品 JSON 列名
         :param cache_drugs: 是否在初始化时缓存药品列表（可提高匹配速度）
         """
         self.conn = db_conn
@@ -39,6 +48,8 @@ class DrugMatcher:
         self.drug_column = drug_column
         self.patient_table = patient_table
         self.patient_column = patient_column
+        self.batch_table = batch_table
+        self.batch_medicines_column = batch_medicines_column
         self.cache_drugs = cache_drugs
 
         # 药品名称缓存
@@ -93,8 +104,8 @@ class DrugMatcher:
         text = str(text or "").replace(" ", "")
         return re.sub(r"[^\w\u4e00-\u9fff]+", "", text)
 
-    @staticmethod
-    def _looks_like_non_drug_query(text: str) -> bool:
+    @classmethod
+    def _looks_like_non_drug_query(cls, text: str) -> bool:
         compact = re.sub(r"\s+", "", str(text or ""))
         if not compact:
             return False
@@ -240,12 +251,17 @@ class DrugMatcher:
         _runtime_log(f"✅ 已加载 {len(self._drug_names)} 个药品名称")
 
     def _load_patient_names(self):
-        """从数据库加载所有患者名称到内存"""
+        """从批次表加载所有患者名称到内存"""
         patient_names = []
         try:
             self._ensure_connection()
             with self.conn.cursor() as cursor:
-                sql = f"SELECT {self.patient_column} FROM {self.patient_table}"
+                sql = (
+                    f"SELECT DISTINCT {self.patient_column} "
+                    f"FROM {self.patient_table} "
+                    f"WHERE {self.patient_column} IS NOT NULL "
+                    f"AND {self.patient_column} <> ''"
+                )
                 cursor.execute(sql)
                 results = cursor.fetchall()
                 for row in results:
@@ -259,6 +275,43 @@ class DrugMatcher:
         self._patient_names = [name for name in patient_names if name]  # 过滤空值
         _runtime_log(f"✅ 已加载 {len(self._patient_names)} 个患者名称")
         _runtime_log("所有患者",self._patient_names)
+
+    @staticmethod
+    def _extract_medicine_names_from_json(medicines_value) -> List[str]:
+        if medicines_value is None:
+            return []
+        if isinstance(medicines_value, (bytes, bytearray)):
+            medicines_value = medicines_value.decode("utf-8")
+        if isinstance(medicines_value, str):
+            medicines_value = medicines_value.strip()
+            if not medicines_value:
+                return []
+            medicines = json.loads(medicines_value)
+        else:
+            medicines = medicines_value
+
+        if isinstance(medicines, dict):
+            medicines = medicines.get("medicines") or medicines.get("items") or []
+        if not isinstance(medicines, list):
+            return []
+
+        names = []
+        for item in medicines:
+            if isinstance(item, str):
+                name = item.strip()
+            elif isinstance(item, dict):
+                name = str(
+                    item.get("medicine_name")
+                    or item.get("name")
+                    or item.get("drug_name")
+                    or ""
+                ).strip()
+            else:
+                name = ""
+            if name:
+                names.append(name)
+        return names
+
     def match(self, query: str, match_type: str = 'bottle',
               threshold=80, limit: Optional[int] = None) -> List[str]:
         """
@@ -298,7 +351,7 @@ class DrugMatcher:
 
         if not name_list:
             _runtime_log("⚠️ 名称列表为空，无法匹配，返回所有药品名称")
-            result = self._drug_names
+            result = self._drug_names if match_type == 'bottle' else []
             self._match_cache[cache_key] = tuple(result)
             return list(result)
 
@@ -486,7 +539,7 @@ class DrugMatcher:
             'actual': list,
             'missing': list,
             'extra': list,
-            'patient_id': int or None,
+            'patient_id': None,
             'batch_exists': bool
         }
         """
@@ -502,37 +555,28 @@ class DrugMatcher:
 
         self._ensure_connection()
         with self.conn.cursor() as cursor:
-            # 1. 根据病人名称查询 patient_id
-            cursor.execute("SELECT patient_id FROM patients WHERE name = %s", (patient_name,))
+            cursor.execute(
+                f"""
+                SELECT batch_id, {self.batch_medicines_column}
+                FROM {self.batch_table}
+                WHERE batch_id = %s AND {self.patient_column} = %s
+                """,
+                (batch_id, patient_name),
+            )
             row = cursor.fetchone()
             if not row:
-                _runtime_log(f"错误：未找到名为 '{patient_name}' 的病人")
-                return result
-
-            patient_id = row[0] if isinstance(row, (tuple, list)) else row['patient_id']
-            result['patient_id'] = patient_id
-
-            # 2. 验证批次是否存在且属于该病人
-            cursor.execute("SELECT batch_id FROM batches WHERE batch_id = %s AND patient_id = %s",
-                           (batch_id, patient_id))
-            if not cursor.fetchone():
                 _runtime_log(f"错误：批次 {batch_id} 不存在或不属于病人 {patient_name}")
                 return result
-            result['batch_exists'] = True
 
-            # 3. 查询该批次的所有药品名称
-            sql = """
-                SELECT d.medicine_name
-                FROM batch_medicines bm
-                JOIN drugs d ON bm.medicine_id = d.id
-                WHERE bm.batch_id = %s
-            """
-            cursor.execute(sql, (batch_id,))
-            rows = cursor.fetchall()
-            actual_names = [row[0] if isinstance(row, (tuple, list)) else row['medicine_name'] for row in rows]
+            result['batch_exists'] = True
+            medicines_value = (
+                row[self.batch_medicines_column]
+                if isinstance(row, dict)
+                else row[1]
+            )
+            actual_names = self._extract_medicine_names_from_json(medicines_value)
             result['actual'] = actual_names
 
-            # 4. 比对（忽略顺序，视为集合）
             expected_set = set(expected_medicine_names)
             actual_set = set(actual_names)
 

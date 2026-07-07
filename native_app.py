@@ -106,8 +106,10 @@ def create_local_bottle_db_matcher(
         local_drug_names,
         drug_table="drugs",
         drug_column="medicine_name",
-        patient_table="patients",
-        patient_column="name",
+        patient_table="batches",
+        patient_column="patient_name",
+        batch_table="batches",
+        batch_medicines_column="medicines_json",
 ):
     class LocalBottleDbMatcher(drug_matcher_cls):
         def __init__(self):
@@ -117,6 +119,8 @@ def create_local_bottle_db_matcher(
                 drug_column=drug_column,
                 patient_table=patient_table,
                 patient_column=patient_column,
+                batch_table=batch_table,
+                batch_medicines_column=batch_medicines_column,
                 cache_drugs=False,
             )
             self._drug_names = list(dict.fromkeys(name for name in local_drug_names if name))
@@ -529,6 +533,7 @@ class NativeRuntime:
                 runtime_config.get("recognition_workers", 1),
             ))
             quiet_ocr = env_bool("YILIAO_QUIET_OCR", bool(runtime_config.get("quiet_ocr", True)))
+            video_path = os.environ.get("YILIAO_VIDEO_PATH", str(runtime_config.get("video_path", "") or "")).strip()
             ocr_instance_count = int(os.environ.get(
                 "YILIAO_OCR_INSTANCES",
                 runtime_config.get("ocr_instances", 1),
@@ -548,6 +553,8 @@ class NativeRuntime:
                 drug_column=tables["drug_column"],
                 patient_table=tables["patient_table"],
                 patient_column=tables["patient_column"],
+                batch_table=tables.get("batch_table", "batches"),
+                batch_medicines_column=tables.get("batch_medicines_column", "medicines_json"),
             )
 
             det_model_path = os.path.join(PROJECT_ROOT, "model_det_bs16.rknn")
@@ -603,6 +610,7 @@ class NativeRuntime:
                 trigger_interval=999999.0,
                 recognition_workers=recognition_workers,
                 classifier_thread_safe=False,
+                video_path=video_path,
                 quiet_ocr=quiet_ocr,
                 headless=True,
                 trigger_mode=startup_trigger_mode,
@@ -1135,6 +1143,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-autostart", action="store_true", help="open UI without starting detection thread")
     parser.add_argument("--auto", action="store_true", help="start in automatic trigger mode")
+    parser.add_argument("--video", default="", help="run detection from a local video file instead of RTSP")
     parser.add_argument("--result-only", action="store_true", help="show only the result/control window")
     parser.add_argument("--no-trigger-popup", action="store_true", help="disable automatic trigger popup")
     parser.add_argument("--fullscreen", action="store_true", help="open main window in fullscreen mode")
@@ -1142,6 +1151,8 @@ def main():
     initial_mode = "auto" if args.auto else None
     if initial_mode:
         os.environ["YILIAO_TRIGGER_MODE"] = initial_mode
+    if args.video:
+        os.environ["YILIAO_VIDEO_PATH"] = os.path.abspath(args.video)
     app = NativeRecognitionApp(
         autostart=not args.no_autostart,
         result_only=args.result_only,
