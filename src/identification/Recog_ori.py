@@ -250,7 +250,7 @@ if __name__ == "__main__":
         user='root',
         password='root',
         database='medicine_db',
-        charset='utf8mb4',
+        charset='utf8',
         cursorclass=pymysql.cursors.Cursor
     )
     # device = 'cuda' if torch.cuda.is_available() else 'cpu'

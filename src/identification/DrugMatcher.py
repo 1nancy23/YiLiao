@@ -40,7 +40,7 @@ class DrugMatcher:
         :param patient_table: 患者姓名来源表。两表结构下为 batches
         :param patient_column: 患者姓名列名。两表结构下为 patient_name
         :param batch_table: 批次表名
-        :param batch_medicines_column: 批次药品 JSON 列名
+        :param batch_medicines_column: 药瓶信息列名，保存 JSON 字符串
         :param cache_drugs: 是否在初始化时缓存药品列表（可提高匹配速度）
         """
         self.conn = db_conn
@@ -526,13 +526,14 @@ class DrugMatcher:
 
         return all_results
 
-    def check_patient_batch_medicines(self, patient_name: str, batch_id: int,
-                                      expected_medicine_names: List[str]) -> Dict[str, Any]:
+    def check_patient_batch_medicines(self, patient_name: str,
+                                      expected_medicine_names: List[str],
+                                      batch_id: Optional[int] = None) -> Dict[str, Any]:
         """
-        验证指定病人、指定批次所需的药品是否与预期列表一致。
+        验证指定病人所需的药品是否与预期列表一致。
 
         :param patient_name: 病人姓名
-        :param batch_id: 批次 ID
+        :param batch_id: 兼容旧调用的保留参数，当前两字段 batches 表不再使用
         :param expected_medicine_names: 预期的药品名称列表
         :return: dict {
             'matched': bool,
@@ -557,22 +558,23 @@ class DrugMatcher:
         with self.conn.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT batch_id, {self.batch_medicines_column}
+                SELECT {self.batch_medicines_column}
                 FROM {self.batch_table}
-                WHERE batch_id = %s AND {self.patient_column} = %s
+                WHERE {self.patient_column} = %s
+                LIMIT 1
                 """,
-                (batch_id, patient_name),
+                (patient_name,),
             )
             row = cursor.fetchone()
             if not row:
-                _runtime_log(f"错误：批次 {batch_id} 不存在或不属于病人 {patient_name}")
+                _runtime_log(f"错误：未找到病人 {patient_name} 的药瓶信息")
                 return result
 
             result['batch_exists'] = True
             medicines_value = (
                 row[self.batch_medicines_column]
                 if isinstance(row, dict)
-                else row[1]
+                else row[0]
             )
             actual_names = self._extract_medicine_names_from_json(medicines_value)
             result['actual'] = actual_names
@@ -597,7 +599,7 @@ if __name__ == "__main__":
         'user': 'root',
         'password': 'root',
         'database': 'medicine_db',
-        'charset': 'utf8mb4',
+        'charset': 'utf8',
     }
     conn = init_db(**db_config)
     ocr_model = init_ocr_model()
@@ -634,7 +636,6 @@ if __name__ == "__main__":
 
     validation = matcher.check_patient_batch_medicines(
         patient_name=patient_name,
-        batch_id=1,
         expected_medicine_names=['注射用艾司奥拉美拉唑钠']
     )
 

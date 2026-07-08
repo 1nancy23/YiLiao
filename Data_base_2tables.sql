@@ -1,6 +1,6 @@
 CREATE DATABASE IF NOT EXISTS medicine_db
-    DEFAULT CHARACTER SET utf8mb4
-    COLLATE utf8mb4_unicode_ci;
+    DEFAULT CHARACTER SET utf8
+    COLLATE utf8_general_ci;
 
 USE medicine_db;
 
@@ -12,17 +12,10 @@ DROP TABLE IF EXISTS drugs;
 SET FOREIGN_KEY_CHECKS = 1;
 
 CREATE TABLE IF NOT EXISTS batches (
-    batch_id INT AUTO_INCREMENT PRIMARY KEY COMMENT '批次ID',
     patient_name VARCHAR(100) NOT NULL COMMENT '病人姓名',
-    patient_gender VARCHAR(20) NULL COMMENT '病人性别',
-    patient_age INT NULL COMMENT '病人年龄',
-    department VARCHAR(100) NULL COMMENT '科室',
-    bed_no VARCHAR(50) NULL COMMENT '床号',
-    medicines_json JSON NOT NULL COMMENT '本批次药品信息，例如 [{"medicine_name":"药品名","quantity":1}]',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_batches_patient_name (patient_name),
-    INDEX idx_batches_created_at (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    medicines_json LONGTEXT NOT NULL COMMENT '药瓶信息，保存JSON字符串，例如 [{"medicine_name":"药品名","quantity":1}]',
+    INDEX idx_batches_patient_name (patient_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 
 CREATE TABLE IF NOT EXISTS drugs (
     id INT AUTO_INCREMENT PRIMARY KEY COMMENT '药品ID',
@@ -33,15 +26,36 @@ CREATE TABLE IF NOT EXISTS drugs (
     sift4 MEDIUMBLOB NULL COMMENT '第4张模板图SIFT描述子',
     sift5 MEDIUMBLOB NULL COMMENT '第5张模板图SIFT描述子',
     sift6 MEDIUMBLOB NULL COMMENT '第6张模板图SIFT描述子',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_drugs_medicine_name (medicine_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
+
+-- 手动录入测试批次数据：病人名称 + 药瓶信息
+-- 说明：当前两表结构中不再单独创建 patients / batch_medicines 表，
+--      病人名称和药瓶清单直接保存在 batches 表中。
+INSERT INTO batches
+    (patient_name, medicines_json)
+VALUES
+    (
+        '赵二虎',
+        '[{"medicine_name":"氯化钠注射液(生理盐水)","specification":"250ml","dose":"250ml","frequency":"qd"},{"medicine_name":"银杏叶提取物注射液","specification":"20ml","dose":"20ml","frequency":"qd"}]'
+    ),
+    (
+        '魏理想',
+        '[{"medicine_name":"0.9%氯化钠注射液(RD)","specification":"100ml","dose":"100ml","frequency":"QD","batch_no":"01批"},{"medicine_name":"奥美拉唑钠","specification":"40mg","dose":"40mg","frequency":"QD","batch_no":"01批"}]'
+    );
 
 SELECT 'two-table schema created' AS status;
 
 -- 查看药品表结构
 SHOW COLUMNS FROM drugs;
+SHOW COLUMNS FROM batches;
+
+-- 查看手动录入的批次数据
+SELECT
+    patient_name,
+    medicines_json
+FROM batches
+ORDER BY patient_name;
 
 -- 查看药品表中已录入的药品及每个药品的 SIFT 模板数量
 SELECT
@@ -52,22 +66,7 @@ SELECT
     (sift3 IS NOT NULL) +
     (sift4 IS NOT NULL) +
     (sift5 IS NOT NULL) +
-    (sift6 IS NOT NULL) AS sift_template_count,
-    created_at,
-    updated_at
+    (sift6 IS NOT NULL) AS sift_template_count
 FROM drugs
 ORDER BY id;
 
-
-
-SELECT
-    id,
-    medicine_name,
-    OCTET_LENGTH(sift1) AS sift1_bytes,
-    OCTET_LENGTH(sift2) AS sift2_bytes,
-    OCTET_LENGTH(sift3) AS sift3_bytes,
-    OCTET_LENGTH(sift4) AS sift4_bytes,
-    OCTET_LENGTH(sift5) AS sift5_bytes,
-    OCTET_LENGTH(sift6) AS sift6_bytes
-FROM drugs
-ORDER BY id;

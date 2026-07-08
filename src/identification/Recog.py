@@ -414,9 +414,7 @@ class PharmaceuticalBottleClassifier:
                     sift3 MEDIUMBLOB,
                     sift4 MEDIUMBLOB,
                     sift5 MEDIUMBLOB,
-                    sift6 MEDIUMBLOB,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    sift6 MEDIUMBLOB
                 )
             ''')
         self.conn.commit()
@@ -871,7 +869,7 @@ if __name__ == "__main__":
         user='root',
         password='root',
         database='medicine_db',
-        charset='utf8mb4',
+        charset='utf8',
         cursorclass=pymysql.cursors.Cursor
     )
 
@@ -1842,10 +1840,6 @@ if __name__ == "__main__":
 #     # ------------------------------------------------------
 #     # 1. 连接数据库
 #     # ------------------------------------------------------
-#     # 注意：
-#     # 如果你的 MySQL 不支持 utf8mb4，请使用 utf8。
-#     # 你之前报过 Unknown character set: 'utf8mb4'，
-#     # 所以这里使用 utf8。
 #     conn = pymysql.connect(
 #         host='localhost',
 #         user='root',

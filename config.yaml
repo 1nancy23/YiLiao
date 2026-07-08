@@ -55,7 +55,7 @@ db_config: # 数据库配置
   user: root
   password: root
   database: medicine_db
-  charset: utf8mb4
+  charset: utf8
 
 table_config: # 数据表配置
   drug_table: drugs

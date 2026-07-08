@@ -23,7 +23,7 @@ DB_PORT = 3306
 DB_USER = "root"
 DB_PASSWORD = "root"
 DB_NAME = "medicine_db"
-DB_CHARSET = "utf8mb4"
+DB_CHARSET = "utf8"
 
 FEATURE_ROOT = r"D:\A_Python\工业图像识别\src\identification\feat_data"
 # =========================================================

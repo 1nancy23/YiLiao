@@ -845,10 +845,10 @@ def _unique_texts(values):
     return result
 
 
-def _resolve_latest_patient_batch_id(drug_matcher, patient_name):
+def _patient_has_medicine_info(drug_matcher, patient_name):
     conn = getattr(drug_matcher, "conn", None)
     if conn is None or not patient_name:
-        return None
+        return False
     batch_table = getattr(drug_matcher, "batch_table", "batches")
     patient_column = getattr(drug_matcher, "patient_column", "patient_name")
     if hasattr(conn, "ping"):
@@ -856,18 +856,15 @@ def _resolve_latest_patient_batch_id(drug_matcher, patient_name):
     with conn.cursor() as cursor:
         cursor.execute(
             f"""
-            SELECT batch_id
+            SELECT 1
             FROM {batch_table}
             WHERE {patient_column} = %s
-            ORDER BY batch_id DESC
             LIMIT 1
             """,
             (patient_name,),
         )
         row = cursor.fetchone()
-    if not row:
-        return None
-    return row["batch_id"] if isinstance(row, dict) else row[0]
+    return bool(row)
 
 
 def _resize_for_display(frame, display_scale=1.0, max_width=DISPLAY_MAX_WIDTH, max_height=DISPLAY_MAX_HEIGHT):
@@ -1986,12 +1983,10 @@ def run_realtime_detection(
             validation_result = None
             validation_status = "skipped"
             validation_message = "missing patient name, medicine result, or database matcher"
-            validation_batch_id = None
 
             if patient_name and final_medicines and drug_matcher and hasattr(drug_matcher, "check_patient_batch_medicines"):
                 try:
-                    validation_batch_id = _resolve_latest_patient_batch_id(drug_matcher, patient_name)
-                    if validation_batch_id is None:
+                    if not _patient_has_medicine_info(drug_matcher, patient_name):
                         validation = {
                             "matched": False,
                             "actual": [],
@@ -2003,21 +1998,19 @@ def run_realtime_detection(
                     else:
                         validation = drug_matcher.check_patient_batch_medicines(
                             patient_name=patient_name,
-                            batch_id=validation_batch_id,
                             expected_medicine_names=final_medicines
                         )
-                        validation["batch_id"] = validation_batch_id
                     validation_result = validation
                     if validation.get("batch_exists"):
                         validation_status = "matched" if validation.get("matched") else "mismatch"
                         validation_message = (
-                            f"matched batch {validation_batch_id}"
+                            f"matched patient medicine info for {patient_name}"
                             if validation.get("matched")
-                            else f"medicine mismatch in batch {validation_batch_id}"
+                            else f"medicine mismatch for {patient_name}"
                         )
                     else:
                         validation_status = "batch_not_found"
-                        validation_message = "patient batch not found"
+                        validation_message = "patient medicine info not found"
 
                     print(f"\n{'=' * 60}")
                     print("【数据库匹配结果】")
@@ -2036,7 +2029,7 @@ def run_realtime_detection(
                             print(f"  ❌ 缺少: {validation['missing']}")
                             print(f"     多余: {validation['extra']}")
                     else:
-                        print("  ⚠️ 患者批次不存在")
+                        print("  ⚠️ 患者药瓶信息不存在")
 
                     print(f"{'=' * 60}")
 
@@ -2068,7 +2061,6 @@ def run_realtime_detection(
                 "database_match": {
                     "status": validation_status,
                     "message": validation_message,
-                    "batch_id": validation_batch_id,
                     "validation": validation_result,
                 },
                 "structured_infusions": structured_infusions,

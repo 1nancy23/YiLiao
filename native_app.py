@@ -91,13 +91,7 @@ def init_db(db_config):
         port=int(db_config.get("port", 3306)),
         cursorclass=pymysql.cursors.DictCursor,
     )
-    try:
-        return pymysql.connect(**kwargs)
-    except pymysql.err.OperationalError as exc:
-        if exc.args and exc.args[0] == 1115 and kwargs["charset"].lower() == "utf8mb4":
-            kwargs["charset"] = "utf8"
-            return pymysql.connect(**kwargs)
-        raise
+    return pymysql.connect(**kwargs)
 
 
 def create_local_bottle_db_matcher(

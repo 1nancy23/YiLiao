@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import re
 import time
+import json
 import pymysql
 from fuzzywuzzy import fuzz, process
 from src.utils.init_utils import close_db, init_db, init_ocr_model
@@ -199,20 +200,20 @@ class OCRMatcher:
 
         return all_results
 
-    def check_patient_batch_medicines(self,conn, patient_name, batch_id, expected_medicine_names):
+    def check_patient_batch_medicines(self, conn, patient_name, expected_medicine_names, batch_id=None):
         """
-        验证指定病人、指定批次所需的药品是否与预期列表一致。
+        验证指定病人的药瓶信息是否与预期列表一致。
 
         :param conn: 数据库连接对象
         :param patient_name: 病人姓名
-        :param batch_id: 批次ID
+        :param batch_id: 兼容旧调用的保留参数，当前两字段 batches 表不再使用
         :param expected_medicine_names: 预期的药品名称列表（列表 of str）
         :return: dict {
             'matched': bool,           # 是否完全匹配
             'actual': list,            # 数据库中实际查询到的药品名称列表
             'missing': list,           # 预期有但实际没有的药品
             'extra': list,             # 实际有但预期没有的药品
-            'patient_id': int or None, # 查询到的病人ID（验证用）
+            'patient_id': None,        # 兼容旧返回结构，当前两字段表不再使用
             'batch_exists': bool       # 批次是否存在且属于该病人
         }
         """
@@ -226,39 +227,30 @@ class OCRMatcher:
         }
 
         with conn.cursor() as cursor:
-            # 1. 根据病人名称查询 patient_id
-            cursor.execute("SELECT patient_id FROM patients WHERE name = %s", (patient_name,))
+            cursor.execute(
+                "SELECT medicines_json FROM batches WHERE patient_name = %s LIMIT 1",
+                (patient_name,),
+            )
             row = cursor.fetchone()
             if not row:
-                print(f"错误：未找到名为 '{patient_name}' 的病人")
+                print(f"错误：未找到病人 '{patient_name}' 的药瓶信息")
                 return result
 
-            # 兼容元组和字典
-            patient_id = row[0] if isinstance(row, (tuple, list)) else row['patient_id']
-            result['patient_id'] = patient_id
-
-            # 2. 验证批次是否存在且属于该病人
-            cursor.execute("SELECT batch_id FROM batches WHERE batch_id = %s AND patient_id = %s",
-                           (batch_id, patient_id))
-            if not cursor.fetchone():
-                print(f"错误：批次 {batch_id} 不存在或不属于病人 {patient_name}")
-                return result
             result['batch_exists'] = True
-
-            # 3. 查询该批次的所有药品名称
-            sql = """
-                SELECT d.medicine_name
-                FROM batch_medicines bm
-                JOIN drugs d ON bm.medicine_id = d.id
-                WHERE bm.batch_id = %s
-            """
-            cursor.execute(sql, (batch_id,))
-            rows = cursor.fetchall()
-            # 提取药品名称列表
-            actual_names = [row[0] if isinstance(row, (tuple, list)) else row['medicine_name'] for row in rows]
+            medicines_value = row[0] if isinstance(row, (tuple, list)) else row['medicines_json']
+            if isinstance(medicines_value, bytes):
+                medicines_value = medicines_value.decode("utf-8", errors="ignore")
+            medicines = json.loads(medicines_value or "[]")
+            actual_names = []
+            for item in medicines:
+                if isinstance(item, str):
+                    actual_names.append(item)
+                elif isinstance(item, dict):
+                    name = item.get("medicine_name") or item.get("name") or item.get("drug_name")
+                    if name:
+                        actual_names.append(str(name))
             result['actual'] = actual_names
 
-            # 4. 比对（忽略顺序，视为集合）
             expected_set = set(expected_medicine_names)
             actual_set = set(actual_names)
 
@@ -276,7 +268,7 @@ if __name__ == "__main__":
         'user': 'root',
         'password': 'root',
         'database': 'medicine_db',
-        'charset': 'utf8mb4',
+        'charset': 'utf8',
     }
     conn = init_db(**db_config)
 
@@ -297,7 +289,7 @@ if __name__ == "__main__":
     # for res in results:
     #     print(f"OCR: {res['ocr_text']}, Matches: {res['matches']}")
 
-    # print(matcher.check_patient_batch_medicines(conn=conn,patient_name='魏理想',batch_id=1,expected_medicine_names=["注射用艾司奥拉美拉唑钠"]))
+    # print(matcher.check_patient_batch_medicines(conn=conn, patient_name='魏理想', expected_medicine_names=["注射用艾司奥拉美拉唑钠"]))
 
 
     # 关闭连接
