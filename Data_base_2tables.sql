@@ -46,18 +46,20 @@ VALUES
 
 SELECT 'two-table schema created' AS status;
 
--- 查看药品表结构
-SHOW COLUMNS FROM drugs;
+-- 查询病人信息表结构
 SHOW COLUMNS FROM batches;
 
--- 查看手动录入的批次数据
+-- 查询病人信息表数据
 SELECT
     patient_name,
     medicines_json
 FROM batches
 ORDER BY patient_name;
 
--- 查看药品表中已录入的药品及每个药品的 SIFT 模板数量
+-- 查询药瓶特征表结构
+SHOW COLUMNS FROM drugs;
+
+-- 查询药瓶特征表数据概览：已录入药品及每个药品的 SIFT 模板数量
 SELECT
     id,
     medicine_name,
@@ -69,4 +71,3 @@ SELECT
     (sift6 IS NOT NULL) AS sift_template_count
 FROM drugs
 ORDER BY id;
-
