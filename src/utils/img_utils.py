@@ -5,6 +5,373 @@ from typing import List, Any, Tuple
 
 class ImageProcessor:
     """图像处理工具类，提供旋转、清晰度评估、最清晰图像选择等功能"""
+
+    @staticmethod
+    def _load_image(image):
+        if isinstance(image, str):
+            img = cv2.imread(image)
+            if img is None:
+                print(f"⚠️ 无法读取图片：{image}")
+            return img
+        if image is None:
+            return None
+        return image.copy()
+
+    @staticmethod
+    def _border_median_color(img):
+        h, w = img.shape[:2]
+        if h <= 0 or w <= 0:
+            return (255, 255, 255)
+        strip = max(1, min(h, w) // 20)
+        border = np.concatenate((
+            img[:strip, :, :].reshape(-1, 3),
+            img[h - strip:, :, :].reshape(-1, 3),
+            img[:, :strip, :].reshape(-1, 3),
+            img[:, w - strip:, :].reshape(-1, 3),
+        ), axis=0)
+        color = np.median(border, axis=0)
+        return tuple(int(v) for v in color)
+
+    @staticmethod
+    def _weighted_median(values, weights):
+        values = np.asarray(values, dtype=np.float32)
+        weights = np.asarray(weights, dtype=np.float32)
+        if values.size == 0:
+            return None
+        order = np.argsort(values)
+        values = values[order]
+        weights = weights[order]
+        midpoint = np.sum(weights) * 0.5
+        return float(values[np.searchsorted(np.cumsum(weights), midpoint)])
+
+    @staticmethod
+    def _dominant_angle_cluster(angles, weights, cluster_width=12.0):
+        """Choose one coherent direction before taking its weighted median."""
+        angles = np.asarray(angles, dtype=np.float32)
+        weights = np.asarray(weights, dtype=np.float32)
+        if angles.size == 0:
+            return None
+
+        # Line directions repeat every 180 degrees. Compare them in doubled-
+        # angle space so -89 and +89 degrees are treated as neighbours.
+        doubled = np.deg2rad(angles * 2.0)
+        best_score = -1.0
+        best_mask = None
+        for center in angles:
+            delta = np.abs(((angles - center + 90.0) % 180.0) - 90.0)
+            mask = delta <= float(cluster_width)
+            score = float(np.sum(weights[mask]))
+            if score > best_score:
+                best_score = score
+                best_mask = mask
+
+        if best_mask is None or not np.any(best_mask):
+            return None
+
+        # Circular mean provides a stable centre; the median suppresses the
+        # remaining character strokes or isolated background lines.
+        cluster_angles = angles[best_mask]
+        cluster_weights = weights[best_mask]
+        vector = np.sum(cluster_weights * np.exp(1j * doubled[best_mask]))
+        center = np.degrees(np.angle(vector)) * 0.5
+        unwrapped = center + ((cluster_angles - center + 90.0) % 180.0) - 90.0
+        result = ImageProcessor._weighted_median(unwrapped, cluster_weights)
+        return float(((result + 90.0) % 180.0) - 90.0)
+
+    @staticmethod
+    def _rotate_bound(img, angle, border_value):
+        h, w = img.shape[:2]
+        center = (w / 2.0, h / 2.0)
+        matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+        cos = abs(matrix[0, 0])
+        sin = abs(matrix[0, 1])
+        new_w = int(h * sin + w * cos)
+        new_h = int(h * cos + w * sin)
+        matrix[0, 2] += new_w / 2.0 - center[0]
+        matrix[1, 2] += new_h / 2.0 - center[1]
+        return cv2.warpAffine(
+            img,
+            matrix,
+            (new_w, new_h),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=border_value,
+        )
+
+    @staticmethod
+    def _rotation_to_axis(axis_angle, target_axis):
+        axis = str(target_axis or "vertical").lower()
+        if axis == "horizontal":
+            rotate_angle = axis_angle
+        elif axis == "nearest":
+            if abs(axis_angle) <= 45.0:
+                target = 0.0
+            else:
+                target = 90.0 if axis_angle >= 0 else -90.0
+            rotate_angle = axis_angle - target
+        else:
+            target = 90.0 if axis_angle >= 0 else -90.0
+            rotate_angle = axis_angle - target
+
+        while rotate_angle <= -90.0:
+            rotate_angle += 180.0
+        while rotate_angle > 90.0:
+            rotate_angle -= 180.0
+        return rotate_angle
+
+    @staticmethod
+    def _foreground_axis_angle(img):
+        h, w = img.shape[:2]
+        if min(h, w) < 30:
+            return None
+
+        margin_x = max(2, int(w * 0.04))
+        margin_y = max(2, int(h * 0.04))
+        rect = (
+            margin_x,
+            margin_y,
+            max(1, w - 2 * margin_x),
+            max(1, h - 2 * margin_y),
+        )
+        mask = np.zeros((h, w), np.uint8)
+        bg_model = np.zeros((1, 65), np.float64)
+        fg_model = np.zeros((1, 65), np.float64)
+
+        try:
+            cv2.grabCut(img, mask, rect, bg_model, fg_model, 1, cv2.GC_INIT_WITH_RECT)
+        except cv2.error:
+            return None
+
+        fg_mask = np.where(
+            (mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD),
+            255,
+            0,
+        ).astype(np.uint8)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+        contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return None
+
+        contour = max(contours, key=cv2.contourArea)
+        area = cv2.contourArea(contour)
+        if area < max(80.0, h * w * 0.08):
+            return None
+
+        (_cx, _cy), (rw, rh), angle = cv2.minAreaRect(contour)
+        if rw < 5 or rh < 5:
+            return None
+
+        axis_angle = angle if rw >= rh else angle + 90.0
+        axis_angle = ((axis_angle + 90.0) % 180.0) - 90.0
+        return float(axis_angle)
+
+    @staticmethod
+    def _text_axis_angle(img, ignore_border_ratio=0.20, return_debug=False):
+        """Estimate printed text/rule direction from the central image area."""
+        h, w = img.shape[:2]
+        margin = float(np.clip(ignore_border_ratio, 0.0, 0.40))
+        x1, x2 = int(w * margin), int(w * (1.0 - margin))
+        y1, y2 = int(h * margin), int(h * (1.0 - margin))
+        roi = img[y1:y2, x1:x2]
+        if roi.size == 0 or min(roi.shape[:2]) < 20:
+            return (None, None) if return_debug else None
+
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+        edges = cv2.Canny(gray, 35, 110, apertureSize=3)
+        edges = cv2.morphologyEx(
+            edges,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
+            iterations=1,
+        )
+
+        rh, rw = roi.shape[:2]
+        short_side = max(1, min(rh, rw))
+        long_side = max(rh, rw)
+        min_length = max(10, int(long_side * 0.10))
+        lines = cv2.HoughLinesP(
+            edges,
+            rho=1,
+            theta=np.pi / 360,
+            threshold=max(8, int(short_side * 0.045)),
+            minLineLength=min_length,
+            maxLineGap=max(5, int(short_side * 0.08)),
+        )
+
+        angles, weights = [], []
+        debug = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+        if lines is not None:
+            for line in lines[:, 0, :]:
+                lx1, ly1, lx2, ly2 = line
+                dx, dy = float(lx2 - lx1), float(ly2 - ly1)
+                length = float(np.hypot(dx, dy))
+                if length < min_length:
+                    continue
+                angle = np.degrees(np.arctan2(dy, dx))
+                angle = ((angle + 90.0) % 180.0) - 90.0
+                angles.append(angle)
+                weights.append(length * length)
+                if return_debug:
+                    cv2.line(debug, (lx1, ly1), (lx2, ly2), (0, 0, 255), 1)
+
+        dominant = ImageProcessor._dominant_angle_cluster(
+            angles,
+            weights,
+            cluster_width=10.0,
+        )
+        if return_debug:
+            return dominant, (edges, debug, (x1, y1, x2, y2))
+        return dominant
+
+    @staticmethod
+    def rotate_text_image(
+        image,
+        target_axis="horizontal",
+        min_rotate_degrees=2.0,
+        ignore_border_ratio=0.20,
+        return_debug=False,
+    ):
+        """Deskew a bag label from text/rule directions in its central 60%."""
+        img = ImageProcessor._load_image(image)
+        if img is None or img.size == 0:
+            return (None, None) if return_debug else None
+
+        estimate = ImageProcessor._text_axis_angle(
+            img,
+            ignore_border_ratio=ignore_border_ratio,
+            return_debug=return_debug,
+        )
+        if return_debug:
+            dominant_angle, debug = estimate
+        else:
+            dominant_angle, debug = estimate, None
+
+        if dominant_angle is None:
+            return (img, debug) if return_debug else img
+        rotate_angle = ImageProcessor._rotation_to_axis(dominant_angle, target_axis)
+        if abs(rotate_angle) < float(min_rotate_degrees):
+            return (img, debug) if return_debug else img
+
+        result = ImageProcessor._rotate_bound(
+            img,
+            rotate_angle,
+            ImageProcessor._border_median_color(img),
+        )
+        return (result, debug) if return_debug else result
+
+    @staticmethod
+    def auto_rotate_image(
+        image,
+        target_axis="vertical",
+        min_rotate_degrees=3.0,
+        min_line_ratio=0.35,
+        max_detect_side=480,
+        use_foreground=False,
+        hough_threshold_ratio=0.10,
+        max_line_gap_ratio=0.16,
+        edge_close_kernel=5,
+    ):
+        """
+        Fast bottle-axis correction for YOLO crops.
+
+        By default it uses only long edge segments with Canny + HoughLinesP for
+        speed. Set use_foreground=True to run a slower foreground-contour
+        estimate first, useful when strong background edges dominate the crop.
+        If no stable axis is found, the original crop is returned unchanged.
+        edge_close_kernel and max_line_gap_ratio let slightly curved/broken
+        label edges be treated as one dominant straight segment.
+        """
+        img = ImageProcessor._load_image(image)
+        if img is None or img.size == 0:
+            return None
+
+        h, w = img.shape[:2]
+        if min(h, w) < 20:
+            return img
+
+        if use_foreground:
+            foreground_angle = ImageProcessor._foreground_axis_angle(img)
+            if foreground_angle is not None:
+                rotate_angle = ImageProcessor._rotation_to_axis(foreground_angle, target_axis)
+                if abs(rotate_angle) < float(min_rotate_degrees):
+                    return img
+                border_value = ImageProcessor._border_median_color(img)
+                return ImageProcessor._rotate_bound(img, rotate_angle, border_value)
+
+        detect_img = img
+        scale = 1.0
+        max_side = max(h, w)
+        if max_detect_side and max_side > max_detect_side:
+            scale = max_detect_side / float(max_side)
+            detect_img = cv2.resize(
+                img,
+                (max(1, int(w * scale)), max(1, int(h * scale))),
+                interpolation=cv2.INTER_AREA,
+            )
+
+        gray = cv2.cvtColor(detect_img, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+        if edge_close_kernel and edge_close_kernel >= 3:
+            k = int(edge_close_kernel)
+            if k % 2 == 0:
+                k += 1
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
+            edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=1)
+
+        dh, dw = detect_img.shape[:2]
+        short_side = max(1, min(dh, dw))
+        long_side = max(dh, dw)
+        min_line_length = max(18, int(long_side * float(min_line_ratio)))
+        max_line_gap = max(8, int(short_side * float(max_line_gap_ratio)))
+        threshold = max(14, int(short_side * float(hough_threshold_ratio)))
+
+        lines = cv2.HoughLinesP(
+            edges,
+            rho=1,
+            theta=np.pi / 180,
+            threshold=threshold,
+            minLineLength=min_line_length,
+            maxLineGap=max_line_gap,
+        )
+        if lines is None:
+            return img
+
+        angles = []
+        lengths = []
+        for line in lines[:, 0, :]:
+            x1, y1, x2, y2 = line
+            dx = float(x2 - x1)
+            dy = float(y2 - y1)
+            length = float(np.hypot(dx, dy))
+            if length < min_line_length:
+                continue
+            angle = np.degrees(np.arctan2(dy, dx))
+            angle = ((angle + 90.0) % 180.0) - 90.0
+            angles.append(angle)
+            midpoint_x = (x1 + x2) * 0.5 / max(1.0, float(dw))
+            midpoint_y = (y1 + y2) * 0.5 / max(1.0, float(dh))
+            center_distance = min(1.0, np.hypot(midpoint_x - 0.5, midpoint_y - 0.5) / 0.707)
+            center_weight = 1.0 - 0.65 * center_distance
+            lengths.append(length * length * center_weight)
+
+        dominant_angle = ImageProcessor._dominant_angle_cluster(
+            angles,
+            lengths,
+            cluster_width=12.0,
+        )
+        if dominant_angle is None:
+            return img
+
+        rotate_angle = ImageProcessor._rotation_to_axis(dominant_angle, target_axis)
+
+        if abs(rotate_angle) < float(min_rotate_degrees):
+            return img
+
+        border_value = ImageProcessor._border_median_color(img)
+        return ImageProcessor._rotate_bound(img, rotate_angle, border_value)
     
     @staticmethod
     def image_enhance(image):
@@ -14,14 +381,9 @@ class ImageProcessor:
         :param image: 图像数组或文件路径
         :return: 增强后的图像数组，失败返回 None
         """
-        # 1. 加载图像
-        if isinstance(image, str):
-            img = cv2.imread(image)
-            if img is None:
-                print(f"⚠️ 无法读取图片：{image}")
-                return None
-        else:
-            img = image
+        img = ImageProcessor._load_image(image)
+        if img is None:
+            return None
 
         # 内部增强函数
         def apply_enhancement(img_to_enhance):
@@ -37,31 +399,9 @@ class ImageProcessor:
             return enhanced
 
         # 2. 倾斜校正 (基于原始图像)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
-        lines = cv2.HoughLines(edges, 1, np.pi / 180, 100)
-
-        if lines is not None and len(lines) > 5:
-            angles = []
-            for line in lines:
-                rho, theta = line[0]
-                angle = np.degrees(theta) - 90
-                angles.append(angle)
-            angle = np.median(angles)
-            if abs(angle) > 5:  # 大于5度才旋转
-                (h, w) = img.shape[:2]
-                center = (w // 2, h // 2)
-                angle_rad = np.radians(angle)
-                sin_angle = np.abs(np.sin(angle_rad))
-                cos_angle = np.abs(np.cos(angle_rad))
-                new_w = int(w * cos_angle + h * sin_angle)
-                new_h = int(h * cos_angle + w * sin_angle)
-                M = cv2.getRotationMatrix2D(center, angle, 1.0)
-                img = cv2.warpAffine(
-                    img, M, (new_w, new_h),
-                    flags=cv2.INTER_CUBIC,
-                    borderMode=cv2.BORDER_REPLICATE
-                )
+        img = ImageProcessor.auto_rotate_image(img)
+        if img is None:
+            return None
 
         # 3. 无论是否旋转，都执行增强
         enhanced_img = apply_enhancement(img)

@@ -1692,6 +1692,37 @@ def run_realtime_detection(
                 bottle_class_id=0,
                 shuye_class_id=2,
             )
+            rotate_bottle_crops = os.environ.get(
+                "YILIAO_ROTATE_BOTTLE_CROPS",
+                "1",
+            ).lower() in ("1", "true", "yes", "on")
+            rotate_bag_crops = os.environ.get(
+                "YILIAO_ROTATE_BAG_CROPS",
+                "1",
+            ).lower() in ("1", "true", "yes", "on")
+            rotate_use_foreground = os.environ.get(
+                "YILIAO_ROTATE_USE_FOREGROUND",
+                "0",
+            ).lower() in ("1", "true", "yes", "on")
+            if rotate_bottle_crops and cropped_bottles:
+                rotated_bottles = []
+                for bottle in cropped_bottles:
+                    rotated = ImageProcessor.auto_rotate_image(
+                        bottle,
+                        use_foreground=rotate_use_foreground,
+                    )
+                    rotated_bottles.append(rotated if rotated is not None else bottle)
+                cropped_bottles = rotated_bottles
+            if rotate_bag_crops and cropped_bags:
+                rotated_bags = []
+                for bag in cropped_bags:
+                    rotated = ImageProcessor.rotate_text_image(
+                        bag,
+                        target_axis="horizontal",
+                        ignore_border_ratio=0.20,
+                    )
+                    rotated_bags.append(rotated if rotated is not None else bag)
+                cropped_bags = rotated_bags
             t_crop_done = time.time()
 
             print(

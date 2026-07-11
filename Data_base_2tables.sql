@@ -37,11 +37,11 @@ INSERT INTO batches
 VALUES
     (
         '赵二虎',
-        '[{"medicine_name":"氯化钠注射液(生理盐水)","specification":"250ml","dose":"250ml","frequency":"qd"},{"medicine_name":"银杏叶提取物注射液","specification":"20ml","dose":"20ml","frequency":"qd"}]'
+        '[{"medicine_name":"氯化钠注射液(生理盐水)"},{"medicine_name":"银杏叶提取物注射液"]'
     ),
     (
         '魏理想',
-        '[{"medicine_name":"0.9%氯化钠注射液(RD)","specification":"100ml","dose":"100ml","frequency":"QD","batch_no":"01批"},{"medicine_name":"奥美拉唑钠","specification":"40mg","dose":"40mg","frequency":"QD","batch_no":"01批"}]'
+        '[{"medicine_name":"0.9%氯化钠注射液(RD)"},{"medicine_name":"奥美拉唑钠"}]'
     );
 
 SELECT 'two-table schema created' AS status;
