@@ -86,7 +86,7 @@ def init_db(db_config):
         host=db_config.get("host", "192.168.137.1"),
         user=db_config.get("user", "root"),
         password=db_config.get("password", "root"),
-        database=db_config.get("database", "medicine_db"),
+        database=db_config.get("database", "medicine_db2"),
         charset=db_config.get("charset", "utf8"),
         port=int(db_config.get("port", 3306)),
         cursorclass=pymysql.cursors.DictCursor,
@@ -491,9 +491,11 @@ class NativeRuntime:
         with self.lock:
             self.latest_detection_frame = frame.copy()
 
-    def snapshot_detection_frame(self):
+    def consume_detection_frame(self):
         with self.lock:
-            return self.latest_detection_frame
+            frame = self.latest_detection_frame
+            self.latest_detection_frame = None
+            return frame
 
     def snapshot_bottle_frame(self):
         with self.lock:
@@ -703,9 +705,10 @@ class NativeRecognitionApp:
         while self.running:
             self.drain_events()
             cv2.imshow(self.window_name, self.render())
-            detection_frame = self.runtime.snapshot_detection_frame()
+            detection_frame = self.runtime.consume_detection_frame()
             if detection_frame is not None:
                 self.show_detection_frame(detection_frame)
+                del detection_frame
             if not self.result_only:
                 bottle_frame = self.runtime.snapshot_bottle_frame()
                 if bottle_frame is not None:

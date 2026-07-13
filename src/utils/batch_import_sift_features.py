@@ -2,7 +2,7 @@
 
 Run this file directly after the two-table database has been created.
 It reads medicine template images from FEATURE_ROOT and writes SIFT blobs
-to medicine_db.drugs.sift1 ... sift6.
+to medicine_db2.drugs.sift1 ... sift6.
 """
 import os
 import sys
@@ -22,10 +22,10 @@ DB_HOST = "127.0.0.1"
 DB_PORT = 3306
 DB_USER = "root"
 DB_PASSWORD = "root"
-DB_NAME = "medicine_db"
+DB_NAME = "medicine_db2"
 DB_CHARSET = "utf8"
 
-FEATURE_ROOT = r"D:\A_Python\工业图像识别\src\identification\feat_data"
+FEATURE_ROOT = r"A:\项目\AnotherYiliao\工业图像识别\0603\YiLiaoShiBie_0521\YiLiao-0707\YiLiao-0707\src\identification\feat_data"
 # =========================================================
 
 

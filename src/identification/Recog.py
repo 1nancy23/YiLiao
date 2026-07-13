@@ -32,6 +32,7 @@ def _runtime_log(*args, **kwargs):
 label_list = [0, 90, 180, 270]
 CLS_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
 CLS_STD = np.asarray([0.229, 0.224, 0.225], dtype=np.float32)
+SIFT_CACHE_PIPELINE = "original_resolution_bidirectional_bf_v1"
 
 
 def _default_cls_model_path():
@@ -86,6 +87,7 @@ def _feature_root_signature(root_folder):
         "root": os.path.abspath(root_folder),
         "digest": digest,
         "entries": len(entries),
+        "sift_pipeline": SIFT_CACHE_PIPELINE,
     }
 
 
@@ -209,9 +211,7 @@ class PharmaceuticalBottleClassifier:
         return clahe.apply(gray)
 
     def _extract_sift_features(self, image):
-        # print(image.shape)
-        # image = cv2.resize(image, (224, 224))
-        # print(image.shape)
+        # SIFT templates and live bottle crops must retain their source resolution.
         return self.sift.detectAndCompute(image, None)
 
     def _extract_features_from_image(self, image):
@@ -237,9 +237,18 @@ class PharmaceuticalBottleClassifier:
                 if m.distance < 0.72 * n.distance:
                     good += 1
                     quality += 1.0 - (m.distance / max(n.distance, 1e-6))
+            reverse_matches = self.matcher.knnMatch(desc2, desc1, k=2)
+            reverse_good = 0
+            for item in reverse_matches:
+                if len(item) < 2:
+                    continue
+                m, n = item
+                if m.distance < 0.72 * n.distance:
+                    reverse_good += 1
+            stable_good = min(good, reverse_good)
             avg_quality = quality / max(1, good)
             denom = max(1.0, float(np.sqrt(len(desc1) * len(desc2))))
-            score = (good / denom) * (0.75 + 0.25 * avg_quality)
+            score = (stable_good / denom) * (0.75 + 0.25 * avg_quality)
             return good, score
         except Exception:
             return 0, 0.0
@@ -287,10 +296,9 @@ class PharmaceuticalBottleClassifier:
         if not train_descs:
             return {}, {}, None, 0
 
-        # Reuse the pre-created FLANN matcher (much faster than per-call BFMatcher)
-        self.flann.clear()
-        self.flann.add(train_descs)
-        self.flann.train()
+        matcher = cv2.BFMatcher(cv2.NORM_L2)
+        matcher.add(train_descs)
+        matcher.train()
 
         template_stats = {}
         medicine_stats = {
@@ -300,7 +308,7 @@ class PharmaceuticalBottleClassifier:
         total_good = 0
 
         try:
-            matches = self.flann.knnMatch(desc_query, k=2)
+            matches = matcher.knnMatch(desc_query, k=2)
         except Exception:
             return {}, {}, None, 0
 
@@ -868,7 +876,7 @@ if __name__ == "__main__":
         host='localhost',
         user='root',
         password='root',
-        database='medicine_db',
+        database='medicine_db2',
         charset='utf8',
         cursorclass=pymysql.cursors.Cursor
     )
@@ -901,7 +909,6 @@ if __name__ == "__main__":
 
     img = cv2.imread("./data/bottle_1773990086441.jpg")
     if img is not None:
-        img = cv2.resize(img, (224, 224))
         feat_result = classifier.classify(candidate_names, img)
         best_match = feat_result['predicted_category']
         confidence = feat_result['confidence']
@@ -1844,7 +1851,7 @@ if __name__ == "__main__":
 #         host='localhost',
 #         user='root',
 #         password='root',
-#         database='medicine_db',
+#         database='medicine_db2',
 #         charset='utf8',
 #         cursorclass=pymysql.cursors.Cursor
 #     )
@@ -1913,4 +1920,3 @@ if __name__ == "__main__":
 #         print("图片读取失败")
 
 #     conn.close()
-

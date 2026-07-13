@@ -1,5 +1,6 @@
 import os
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -11,6 +12,7 @@ import Test_OCR as infusion_ocr
 import Test_OCR_tight_lines as tight_ocr
 from src.identification.OCRRecognizer import parse_required_fields
 from src.identification.rknn_runtime_lock import get_rknn_lock
+from src.utils.img_utils import ImageProcessor
 
 
 LABEL_LIST = [0, 90, 180, 270]
@@ -228,7 +230,7 @@ class RknnOCRRecognizer:
         self.rec_batch_size = max(1, int(rec_batch_size))
         self.cls_batch_size = max(1, int(cls_batch_size), int(inferred_cls_batch_size))
         self._det_batch_supported = self.det_batch_size > 1
-        default_workers = 1
+        default_workers = 4
         self.cpu_workers = max(1, int(os.environ.get("YILIAO_OCR_CPU_WORKERS", default_workers)))
         self.cls_lock = get_rknn_lock(cls_core, secondary_domain=True)
 
@@ -292,6 +294,10 @@ class RknnOCRRecognizer:
 
         self.characters = tight_ocr.load_ctc_character_list(self.char_dict_path)
         self.last_timing = {}
+        self._text_angle_lock = threading.Lock()
+        self._text_angle_serial = 0
+        self._text_angle_stats = {}
+        self._reset_text_angle_stats()
         self.debug_dir = ""
         self.debug_prefix = "ocr"
         self._debug_seq = 0
@@ -509,8 +515,114 @@ class RknnOCRRecognizer:
         with ThreadPoolExecutor(max_workers=min(self.cpu_workers, len(items))) as executor:
             return list(executor.map(func, items))
 
+    def _reset_text_angle_stats(self):
+        with getattr(self, "_text_angle_lock", threading.Lock()):
+            self._text_angle_stats = {
+                "candidates": 0,
+                "rotated_candidates": 0,
+                "unchanged_candidates": 0,
+                "work_sec_sum": 0.0,
+                "save_sec_sum": 0.0,
+                "angles": [],
+            }
+
+    @staticmethod
+    def _text_angle_rotation_matrix(image, angle):
+        height, width = image.shape[:2]
+        center = (width / 2.0, height / 2.0)
+        matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+        cosine = abs(matrix[0, 0])
+        sine = abs(matrix[0, 1])
+        new_width = int(height * sine + width * cosine)
+        new_height = int(height * cosine + width * sine)
+        matrix[0, 2] += new_width / 2.0 - center[0]
+        matrix[1, 2] += new_height / 2.0 - center[1]
+        return matrix, new_width, new_height
+
+    def _correct_text_angle_before_crop(self, item, det_map):
+        started = time.perf_counter()
+        image = item["image"]
+        source_map = _squeeze_det_map(det_map)
+        source_map = cv2.resize(
+            source_map,
+            (image.shape[1], image.shape[0]),
+            interpolation=cv2.INTER_LINEAR,
+        )
+        direction_gray = np.rint(np.clip(source_map, 0.0, 1.0) * 255.0).astype(np.uint8)
+        direction_image = cv2.cvtColor(direction_gray, cv2.COLOR_GRAY2BGR)
+        dominant_angle = ImageProcessor._text_axis_angle(
+            direction_image,
+            ignore_border_ratio=0.20,
+            return_debug=False,
+        )
+        rotate_angle = None
+        corrected_image = image
+        corrected_det_map = source_map
+
+        if dominant_angle is not None:
+            rotate_angle = ImageProcessor._rotation_to_axis(
+                dominant_angle,
+                "horizontal",
+            )
+            if abs(rotate_angle) >= 2.0:
+                corrected_image = ImageProcessor._rotate_bound(
+                    image,
+                    rotate_angle,
+                    ImageProcessor._border_median_color(image),
+                )
+                matrix, new_width, new_height = self._text_angle_rotation_matrix(
+                    image,
+                    rotate_angle,
+                )
+                corrected_det_map = cv2.warpAffine(
+                    source_map,
+                    matrix,
+                    (new_width, new_height),
+                    flags=cv2.INTER_LINEAR,
+                    borderMode=cv2.BORDER_CONSTANT,
+                    borderValue=0,
+                )
+                item["image"] = corrected_image
+
+        work_elapsed = time.perf_counter() - started
+        visual_dir = os.environ.get("YILIAO_TEXT_ANGLE_VIS_DIR", "").strip()
+        save_elapsed = 0.0
+        with self._text_angle_lock:
+            serial = self._text_angle_serial
+            self._text_angle_serial += 1
+            self._text_angle_stats["candidates"] += 1
+            self._text_angle_stats["work_sec_sum"] += work_elapsed
+            self._text_angle_stats["angles"].append(
+                None if rotate_angle is None else round(float(rotate_angle), 4)
+            )
+            if rotate_angle is not None and abs(rotate_angle) >= 2.0:
+                self._text_angle_stats["rotated_candidates"] += 1
+            else:
+                self._text_angle_stats["unchanged_candidates"] += 1
+
+            if visual_dir:
+                save_started = time.perf_counter()
+                os.makedirs(visual_dir, exist_ok=True)
+                cv2.imwrite(
+                    os.path.join(visual_dir, f"candidate_{serial:03d}_det_text_direction.jpg"),
+                    direction_image,
+                )
+                cv2.imwrite(
+                    os.path.join(visual_dir, f"candidate_{serial:03d}_before_text_correction.jpg"),
+                    image,
+                )
+                cv2.imwrite(
+                    os.path.join(visual_dir, f"candidate_{serial:03d}_before_text_crop.jpg"),
+                    corrected_image,
+                )
+                save_elapsed = time.perf_counter() - save_started
+                self._text_angle_stats["save_sec_sum"] += save_elapsed
+
+        return item, corrected_det_map
+
     def _postprocess_det_candidate(self, args):
         item, det_map = args
+        item, det_map = self._correct_text_angle_before_crop(item, det_map)
         padding = item["padding"]
         module = item["module"]
         extract_kwargs = {}
@@ -1128,6 +1240,7 @@ class RknnOCRRecognizer:
 
     def _recognize_mixed_candidates_batch(self, candidates, timing_prefix="mixed_"):
         """Run one shared det/rec batch for bottle, bag and infusion OCR crops."""
+        self._reset_text_angle_stats()
         texts_by_owner = {}
         if not candidates:
             self.last_timing[f"{timing_prefix}rknn_det"] = 0.0
@@ -1195,6 +1308,25 @@ class RknnOCRRecognizer:
         self.last_timing[f"{timing_prefix}det_workers"] = getattr(self, "_last_det_workers", 1)
         self.last_timing[f"{timing_prefix}det_batches"] = int(np.ceil(len(candidates) / float(max(1, batch_size))))
         self.last_timing[f"{timing_prefix}text_regions"] = len(flat_regions)
+        with self._text_angle_lock:
+            text_angle_stats = dict(self._text_angle_stats)
+        self.last_timing[f"{timing_prefix}text_angle_candidates"] = text_angle_stats["candidates"]
+        self.last_timing[f"{timing_prefix}text_angle_rotated"] = text_angle_stats["rotated_candidates"]
+        self.last_timing[f"{timing_prefix}text_angle_unchanged"] = text_angle_stats["unchanged_candidates"]
+        self.last_timing[f"{timing_prefix}text_angle_work_sum"] = text_angle_stats["work_sec_sum"]
+        self.last_timing[f"{timing_prefix}text_angle_save_sum"] = text_angle_stats["save_sec_sum"]
+        valid_text_angles = [
+            abs(float(angle))
+            for angle in text_angle_stats["angles"]
+            if angle is not None
+        ]
+        self.last_timing[f"{timing_prefix}text_angle_abs_max"] = (
+            max(valid_text_angles) if valid_text_angles else 0.0
+        )
+        self.last_timing[f"{timing_prefix}text_angle_abs_avg"] = (
+            sum(valid_text_angles) / len(valid_text_angles)
+            if valid_text_angles else 0.0
+        )
 
         for item in candidates:
             texts_by_owner.setdefault(item["owner"], [])

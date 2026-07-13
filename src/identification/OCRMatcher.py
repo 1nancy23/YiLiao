@@ -267,7 +267,7 @@ if __name__ == "__main__":
         'host': '127.0.0.1',
         'user': 'root',
         'password': 'root',
-        'database': 'medicine_db',
+        'database': 'medicine_db2',
         'charset': 'utf8',
     }
     conn = init_db(**db_config)

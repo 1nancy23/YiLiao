@@ -54,7 +54,7 @@ db_config: # 数据库配置
   host: 192.168.137.1
   user: root
   password: root
-  database: medicine_db
+  database: medicine_db2
   charset: utf8
 
 table_config: # 数据表配置
@@ -64,4 +64,3 @@ table_config: # 数据表配置
   patient_column: patient_name
   batch_table: batches
   batch_medicines_column: medicines_json
-

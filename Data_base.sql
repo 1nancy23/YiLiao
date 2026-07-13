@@ -36,7 +36,8 @@ ORDER BY (data_length + index_length) DESC;
 -- 创建病人数据表
 CREATE TABLE IF NOT EXISTS patients (
     patient_id INT AUTO_INCREMENT PRIMARY KEY COMMENT '病人ID',
-    name VARCHAR(100) NOT NULL COMMENT '病人姓名'
+    name VARCHAR(100) NOT NULL COMMENT '病人姓名',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS batches (
@@ -55,7 +56,7 @@ CREATE TABLE IF NOT EXISTS batch_medicines (
     UNIQUE KEY unique_batch_medicine (batch_id, medicine_id)
 );
 
-INSERT into patients(name) VALUES ('魏理想');
+INSERT into patients(name, created_at) VALUES ('魏理想',null);
 INSERT into batches(patient_id) VALUES (1);
 INSERT into batch_medicines(batch_id, medicine_id, quantity) VALUES (1,11,1);
 

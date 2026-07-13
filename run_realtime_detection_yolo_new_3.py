@@ -976,27 +976,12 @@ def _looks_like_bag_ocr_text(text):
     return False
 
 
-def normalize_camera_frame_bgr(img):
-    img = img.copy()
-
-    b, g, r = cv2.split(img.astype(np.float32))
-    mean_b, mean_g, mean_r = b.mean(), g.mean(), r.mean()
-    mean_gray = (mean_b + mean_g + mean_r) / 3.0
-    b *= mean_gray / (mean_b + 1e-6)
-    g *= mean_gray / (mean_g + 1e-6)
-    r *= mean_gray / (mean_r + 1e-6)
-    img = cv2.merge([b, g, r])
-    img = np.clip(img, 0, 255).astype(np.uint8)
-
+def enhance_trigger_frame_contrast(img):
+    """Enhance trigger-frame text contrast without changing its color balance."""
     lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
     l = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(l)
-    img = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
-
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    h, s, v = cv2.split(hsv)
-    v = np.minimum(v, 245).astype(np.uint8)
-    return cv2.cvtColor(cv2.merge([h, s, v]), cv2.COLOR_HSV2BGR)
+    return cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
 
 
 def run_realtime_detection(
@@ -1247,6 +1232,9 @@ def run_realtime_detection(
     basket_resume_at = [0.0]
     last_basket_status = {}
     auto_capture_next_frame = False
+    auto_capture_candidates = []
+    auto_capture_required = 3
+    processing_display_frame = None
 
     print("\n" + "=" * 60)
     print("🚀 实时目标检测已启动 YOLOv8 + 切片处理")
@@ -1673,7 +1661,7 @@ def run_realtime_detection(
                 cv2.imwrite(source_path, best_frame)
                 print(f"[Auto Trigger Source Frame] saved: {source_path}")
 
-            recognition_frame = normalize_camera_frame_bgr(best_frame)
+            recognition_frame = enhance_trigger_frame_contrast(best_frame)
             _, recognition_predictions = processor.process_frames_batch(
                 [recognition_frame],
                 output_type="raw",
@@ -1692,37 +1680,6 @@ def run_realtime_detection(
                 bottle_class_id=0,
                 shuye_class_id=2,
             )
-            rotate_bottle_crops = os.environ.get(
-                "YILIAO_ROTATE_BOTTLE_CROPS",
-                "1",
-            ).lower() in ("1", "true", "yes", "on")
-            rotate_bag_crops = os.environ.get(
-                "YILIAO_ROTATE_BAG_CROPS",
-                "1",
-            ).lower() in ("1", "true", "yes", "on")
-            rotate_use_foreground = os.environ.get(
-                "YILIAO_ROTATE_USE_FOREGROUND",
-                "0",
-            ).lower() in ("1", "true", "yes", "on")
-            if rotate_bottle_crops and cropped_bottles:
-                rotated_bottles = []
-                for bottle in cropped_bottles:
-                    rotated = ImageProcessor.auto_rotate_image(
-                        bottle,
-                        use_foreground=rotate_use_foreground,
-                    )
-                    rotated_bottles.append(rotated if rotated is not None else bottle)
-                cropped_bottles = rotated_bottles
-            if rotate_bag_crops and cropped_bags:
-                rotated_bags = []
-                for bag in cropped_bags:
-                    rotated = ImageProcessor.rotate_text_image(
-                        bag,
-                        target_axis="horizontal",
-                        ignore_border_ratio=0.20,
-                    )
-                    rotated_bags.append(rotated if rotated is not None else bag)
-                cropped_bags = rotated_bags
             t_crop_done = time.time()
 
             print(
@@ -2183,6 +2140,11 @@ def run_realtime_detection(
         while video_stream.running and not (stop_event is not None and stop_event.is_set()):
             frames = video_stream.get_batch(batch_frames)
 
+            if auto_capture_next_frame and hasattr(video_stream, "frame_buffer"):
+                latest_frame = video_stream.frame_buffer.get_latest()
+                if latest_frame is not None and latest_frame.size > 0:
+                    frames = [latest_frame.copy()]
+
             if not frames:
                 continue
 
@@ -2204,11 +2166,15 @@ def run_realtime_detection(
             process_start = time.time()
             active_trigger_mode = current_trigger_mode()
 
-            # 自动模式和手动模式均持续运行药品 YOLO，保持缓存一致。
-            result_frames, predictions = processor.process_frames_batch(
-                frames,
-                output_type=(output_types[current_type_idx] if render_detection_frames else "raw")
-            )
+            # Background OCR uses the same NPU cores. Once processing starts,
+            # freeze the trigger visualization and leave the NPU to that flow.
+            if is_processing.is_set():
+                result_frames, predictions = [], []
+            else:
+                result_frames, predictions = processor.process_frames_batch(
+                    frames,
+                    output_type=(output_types[current_type_idx] if render_detection_frames else "raw")
+                )
 
             process_time = time.time() - process_start
             if verbose_runtime:
@@ -2220,8 +2186,9 @@ def run_realtime_detection(
                 })
 
             # 缓存最近批次（自动和手动模式均缓存）
-            n_batch_frames.append(frames)
-            n_batch_predictions.append(predictions)
+            if predictions:
+                n_batch_frames.append(frames)
+                n_batch_predictions.append(predictions)
 
             # ====================================================
             # 定时触发后台 OCR + 匹配 + 分类
@@ -2241,6 +2208,7 @@ def run_realtime_detection(
             if active_trigger_mode == "manual":
                 # Manual mode: skip basket NPU inference entirely — no auto-trigger needed
                 auto_capture_next_frame = False
+                auto_capture_candidates.clear()
                 last_basket_status = {}
                 if manual_trigger_event is not None and manual_trigger_event.is_set():
                     manual_trigger_event.clear()
@@ -2248,18 +2216,31 @@ def run_realtime_detection(
                     trigger_label = "manual"
             elif active_trigger_mode == "auto":
                 if auto_capture_next_frame:
-                    # The threshold frame only confirms that the scene is static.
-                    # Recognition uses the first raw frame captured afterwards.
-                    trigger_snapshot_frames = [[frames[-1].copy()]]
-                    trigger_snapshot_preds = [[predictions[-1] if predictions else []]]
-                    auto_capture_next_frame = False
-                    should_trigger = True
-                    trigger_label = "basket_auto"
+                    candidate_predictions = predictions[-1] if predictions else []
+                    auto_capture_candidates.append((frames[-1].copy(), candidate_predictions))
+                    if len(auto_capture_candidates) >= auto_capture_required:
+                        def auto_candidate_score(candidate):
+                            _frame, detections = candidate
+                            bag_count = sum(1 for det in detections if int(det[5]) == 1)
+                            confidence_sum = sum(float(det[4]) for det in detections)
+                            return (bag_count > 0, len(detections), confidence_sum)
+
+                        best_frame, best_predictions = max(
+                            auto_capture_candidates,
+                            key=auto_candidate_score,
+                        )
+                        trigger_snapshot_frames = [[best_frame]]
+                        trigger_snapshot_preds = [[best_predictions]]
+                        auto_capture_candidates.clear()
+                        auto_capture_next_frame = False
+                        should_trigger = True
+                        trigger_label = "basket_auto"
                 elif basket_trigger is not None and basket_monitoring:
                     last_basket_status = basket_trigger.update(frames[-1])
                     if last_basket_status.get("triggered"):
                         # Remove all frames queued before the static threshold.
                         video_stream.frame_buffer.clear()
+                        auto_capture_candidates.clear()
                         auto_capture_next_frame = True
 
             if should_trigger:
@@ -2287,6 +2268,23 @@ def run_realtime_detection(
                     snapshot_frames = trigger_snapshot_frames or list(n_batch_frames) or [frames]
                     snapshot_preds = trigger_snapshot_preds or list(n_batch_predictions) or [predictions]
 
+                    # Frontend visualization is an isolated, one-shot branch.
+                    # Run the same core0 YOLO and thresholds on a private frame
+                    # copy; neither its detections nor its rendered image enter
+                    # OCR, matching, trigger caches, or result payloads.
+                    if frame_callback is not None or not headless:
+                        display_source = np.ascontiguousarray(snapshot_frames[-1][-1]).copy()
+                        display_only_predictions = processor.process_whole_image_once(display_source)
+                        processing_display_frame = processor.draw_detections(
+                            display_source,
+                            display_only_predictions,
+                            copy_image=False,
+                        )
+                        del display_only_predictions
+                        del display_source
+                    else:
+                        processing_display_frame = None
+
                     bg_thread = threading.Thread(
                         target=process_batch_in_background,
                         args=(snapshot_frames, snapshot_preds, False, trigger_label == "basket_auto"),
@@ -2308,14 +2306,13 @@ def run_realtime_detection(
                     n_batch_predictions.clear()
                     last_trigger_time = current_time
 
-            # Auto visualization: basket monitoring before trigger, target YOLO after trigger.
+            # One-shot target visualization after either manual or automatic trigger.
             if (
-                active_trigger_mode == "auto"
-                and is_processing.is_set()
-                and result_frames
+                is_processing.is_set()
+                and processing_display_frame is not None
                 and (frame_callback is not None or not headless)
             ):
-                target_display = _resize_for_display(result_frames[-1], display_scale)
+                target_display = _resize_for_display(processing_display_frame, display_scale)
                 emit_frame(target_display)
                 if not headless:
                     if not display_window_ready:
@@ -2323,9 +2320,16 @@ def run_realtime_detection(
                         cv2.resizeWindow("Basket Realtime Detection", DISPLAY_MAX_WIDTH, DISPLAY_MAX_HEIGHT)
                         display_window_ready = True
                     cv2.imshow("Basket Realtime Detection", target_display)
+                processing_display_frame = None
+                del target_display
 
             # Basket visualization: auto mode only (manual mode skips basket entirely)
-            elif active_trigger_mode == "auto" and basket_trigger is not None and (frame_callback is not None or not headless):
+            elif (
+                active_trigger_mode == "auto"
+                and not is_processing.is_set()
+                and basket_trigger is not None
+                and (frame_callback is not None or not headless)
+            ):
                 # draw_result already resizes internally — skip extra _resize_for_display
                 basket_display = basket_trigger.draw_result(
                     frames[-1],
@@ -2418,8 +2422,8 @@ def run_realtime_detection(
                 basket_stable_enough=bool(last_basket_status.get("stable_enough", False)),
                 basket_armed=bool(last_basket_status.get("armed", True)),
                 basket_capture_pending=bool(auto_capture_next_frame),
-                basket_capture_count=0,
-                basket_capture_required=0,
+                basket_capture_count=len(auto_capture_candidates),
+                basket_capture_required=auto_capture_required if auto_capture_next_frame else 0,
                 basket_monitoring=bool(
                     active_trigger_mode == "auto"
                     and not is_processing.is_set()

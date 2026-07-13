@@ -6,7 +6,7 @@ import cv2
 from paddleocr import PaddleOCR
 
 # ==================== 独立数据库函数 ====================
-def init_db(host="192.168.137.1", user="root", password="root", database="medicine_db", charset='utf8'):
+def init_db(host="192.168.137.1", user="root", password="root", database="medicine_db2", charset='utf8'):
     """
     初始化数据库连接，返回连接对象（使用 DictCursor）。
     调用者需确保在使用完毕后调用 close_db() 关闭连接。

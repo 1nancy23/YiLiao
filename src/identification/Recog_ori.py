@@ -249,7 +249,7 @@ if __name__ == "__main__":
         host='localhost',
         user='root',
         password='root',
-        database='medicine_db',
+        database='medicine_db2',
         charset='utf8',
         cursorclass=pymysql.cursors.Cursor
     )
