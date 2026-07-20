@@ -391,7 +391,10 @@ def extract_text_regions(original_image, output, scale_factor=1, threshold=0.3,
     """
     
     # 1. 获取概率图
-    prob_map = cv2.resize(output,(original_image.shape[1],original_image.shape[0]))  # 形状: [H_out, W_out]
+    target_shape = original_image.shape[:2]
+    prob_map = output if output.shape[:2] == target_shape else cv2.resize(
+        output, (target_shape[1], target_shape[0])
+    )
     
     # 2. 阈值分割
     binary_map = (prob_map > threshold).astype(np.uint8)
@@ -648,7 +651,7 @@ def preprocess_rec_image(text_region, rec_input_size=(320, 48)):
 
     padded = np.zeros((rec_h, rec_w, 3), dtype=np.uint8)
     padded[:resized_h, :resized_w, :] = resized
-    return padded.astype(np.uint8)
+    return padded
 
 
 def normalize_rec_output(output, batch_size):
@@ -795,7 +798,10 @@ def save_ocr_results(output_dir, original_image, text_boxes, rec_results):
 
 def save_det_diagnostics(output_dir, original_image, det_map, thresholds):
     os.makedirs(output_dir, exist_ok=True)
-    prob_map = cv2.resize(det_map, (original_image.shape[1], original_image.shape[0]))
+    target_shape = original_image.shape[:2]
+    prob_map = det_map if det_map.shape[:2] == target_shape else cv2.resize(
+        det_map, (target_shape[1], target_shape[0])
+    )
     prob_min = float(np.min(prob_map))
     prob_max = float(np.max(prob_map))
     percentiles = np.percentile(prob_map, [50, 75, 90, 95, 98, 99])

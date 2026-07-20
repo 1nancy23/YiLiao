@@ -845,28 +845,6 @@ def _unique_texts(values):
     return result
 
 
-def _patient_has_medicine_info(drug_matcher, patient_name):
-    conn = getattr(drug_matcher, "conn", None)
-    if conn is None or not patient_name:
-        return False
-    batch_table = getattr(drug_matcher, "batch_table", "batches")
-    patient_column = getattr(drug_matcher, "patient_column", "patient_name")
-    if hasattr(conn, "ping"):
-        conn.ping(reconnect=True)
-    with conn.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT 1
-            FROM {batch_table}
-            WHERE {patient_column} = %s
-            LIMIT 1
-            """,
-            (patient_name,),
-        )
-        row = cursor.fetchone()
-    return bool(row)
-
-
 def _resize_for_display(frame, display_scale=1.0, max_width=DISPLAY_MAX_WIDTH, max_height=DISPLAY_MAX_HEIGHT):
     if frame is None or frame.size == 0:
         return frame
@@ -1974,20 +1952,10 @@ def run_realtime_detection(
 
             if patient_name and final_medicines and drug_matcher and hasattr(drug_matcher, "check_patient_batch_medicines"):
                 try:
-                    if not _patient_has_medicine_info(drug_matcher, patient_name):
-                        validation = {
-                            "matched": False,
-                            "actual": [],
-                            "missing": [],
-                            "extra": [],
-                            "patient_id": None,
-                            "batch_exists": False,
-                        }
-                    else:
-                        validation = drug_matcher.check_patient_batch_medicines(
-                            patient_name=patient_name,
-                            expected_medicine_names=final_medicines
-                        )
+                    validation = drug_matcher.check_patient_batch_medicines(
+                        patient_name=patient_name,
+                        expected_medicine_names=final_medicines
+                    )
                     validation_result = validation
                     if validation.get("batch_exists"):
                         validation_status = "matched" if validation.get("matched") else "mismatch"

@@ -183,6 +183,8 @@ class PharmaceuticalBottleClassifier:
         self._deep_avg_cache = {}    # {medicine_name: np.array or None}
         self._sift_candidate_cache = {}
         self._sift_candidate_cache_limit = int(os.environ.get("YILIAO_SIFT_CANDIDATE_CACHE_LIMIT", "16"))
+        self._sift_matcher_cache = {}
+        self._sift_matcher_cache_limit = int(os.environ.get("YILIAO_SIFT_MATCHER_CACHE_LIMIT", "8"))
         if self.conn is not None:
             self._init_db_table()
         self._load_all_features()
@@ -204,6 +206,7 @@ class PharmaceuticalBottleClassifier:
             except Exception:
                 pass
             self.cls_model = None
+        self._clear_sift_runtime_caches()
 
     def _preprocess_image(self, image):
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -287,18 +290,39 @@ class PharmaceuticalBottleClassifier:
             self._sift_candidate_cache[cache_key] = result
         return result
 
+    def _build_candidate_matcher(self, templates_dict):
+        cache_key = tuple(templates_dict.keys())
+        cached = self._sift_matcher_cache.pop(cache_key, None)
+        if cached is not None:
+            self._sift_matcher_cache[cache_key] = cached
+            return cached
+
+        train_descs, train_meta = self._build_candidate_descriptors(templates_dict)
+        if not train_descs:
+            return None, train_meta
+
+        matcher = cv2.BFMatcher(cv2.NORM_L2)
+        matcher.add(train_descs)
+        matcher.train()
+        result = (matcher, train_meta)
+        if self._sift_matcher_cache_limit > 0:
+            if len(self._sift_matcher_cache) >= self._sift_matcher_cache_limit:
+                self._sift_matcher_cache.pop(next(iter(self._sift_matcher_cache)))
+            self._sift_matcher_cache[cache_key] = result
+        return result
+
+    def _clear_sift_runtime_caches(self):
+        self._sift_candidate_cache.clear()
+        self._sift_matcher_cache.clear()
+
     def _competitive_sift_scores(self, templates_dict, desc_query, ratio_thresh=0.72):
         desc_query = self._valid_sift_desc(desc_query)
         if desc_query is None:
             return {}, {}, None, 0
 
-        train_descs, train_meta = self._build_candidate_descriptors(templates_dict)
-        if not train_descs:
+        matcher, train_meta = self._build_candidate_matcher(templates_dict)
+        if matcher is None:
             return {}, {}, None, 0
-
-        matcher = cv2.BFMatcher(cv2.NORM_L2)
-        matcher.add(train_descs)
-        matcher.train()
 
         template_stats = {}
         medicine_stats = {
@@ -430,7 +454,7 @@ class PharmaceuticalBottleClassifier:
     # ========== 核心优化：一次性加载全部特征 ==========
     def _load_all_features(self):
         """从数据库一次性加载全部药品特征到内存"""
-        self._sift_candidate_cache.clear()
+        self._clear_sift_runtime_caches()
         cache_path = os.environ.get("YILIAO_FEATURE_CACHE", _default_feature_cache_path())
         feature_root = os.environ.get("YILIAO_FEATURE_ROOT", "").strip()
         if feature_root:
@@ -542,7 +566,7 @@ class PharmaceuticalBottleClassifier:
                 _runtime_log(f"[特征缓存] 写入失败: {e}")
 
     def _load_features_from_template_folder(self, root_folder):
-        self._sift_candidate_cache.clear()
+        self._clear_sift_runtime_caches()
         self._templates_cache.clear()
         self._deep_avg_cache.clear()
         for medicine_name in sorted(os.listdir(root_folder)):
@@ -568,7 +592,7 @@ class PharmaceuticalBottleClassifier:
 
     def reload_features(self):
         """公共接口：手动刷新内存缓存（数据库有外部变更时调用）"""
-        self._sift_candidate_cache.clear()
+        self._clear_sift_runtime_caches()
         self._load_all_features()
         _runtime_log(f"[缓存刷新] 已重新加载 {len(self._templates_cache)} 种药品特征")
 
@@ -631,6 +655,7 @@ class PharmaceuticalBottleClassifier:
 
     def _update_single_cache(self, medicine_name, sift_blob_list):
         """录入单个药品后，直接更新内存缓存（避免全量重载）"""
+        self._clear_sift_runtime_caches()
         sift_templates = []
         for blob in sift_blob_list:
             if blob is not None:

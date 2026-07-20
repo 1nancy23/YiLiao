@@ -57,6 +57,10 @@ class DrugMatcher:
         # 患者名称缓存
         self._patient_names = None
         self._match_cache = {}
+        self._match_cache_limit = max(
+            0,
+            int(os.environ.get("YILIAO_MATCH_CACHE_LIMIT", "2048")),
+        )
         self._drug_match_records_key = None
         self._drug_match_records = None
         self._weak_drug_terms = {
@@ -312,6 +316,22 @@ class DrugMatcher:
                 names.append(name)
         return names
 
+    def _get_cached_match(self, cache_key):
+        cached = self._match_cache.pop(cache_key, None)
+        if cached is not None:
+            self._match_cache[cache_key] = cached
+        return cached
+
+    def _store_cached_match(self, cache_key, result):
+        cached = tuple(result)
+        if self._match_cache_limit <= 0:
+            return cached
+        self._match_cache.pop(cache_key, None)
+        if len(self._match_cache) >= self._match_cache_limit:
+            self._match_cache.pop(next(iter(self._match_cache)))
+        self._match_cache[cache_key] = cached
+        return cached
+
     def match(self, query: str, match_type: str = 'bottle',
               threshold=80, limit: Optional[int] = None) -> List[str]:
         """
@@ -327,7 +347,7 @@ class DrugMatcher:
             return []
 
         cache_key = (query, match_type, int(threshold), limit)
-        cached = self._match_cache.get(cache_key)
+        cached = self._get_cached_match(cache_key)
         if cached is not None:
             return list(cached)
 
@@ -352,13 +372,13 @@ class DrugMatcher:
         if not name_list:
             _runtime_log("⚠️ 名称列表为空，无法匹配，返回所有药品名称")
             result = self._drug_names if match_type == 'bottle' else []
-            self._match_cache[cache_key] = tuple(result)
+            self._store_cached_match(cache_key, result)
             return list(result)
 
         if match_type == 'bottle':
             result = self._rank_drug_matches(query, name_list, threshold, limit)
             if result:
-                self._match_cache[cache_key] = tuple(result)
+                self._store_cached_match(cache_key, result)
                 return result
 
         matches = process.extractBests(
@@ -372,14 +392,14 @@ class DrugMatcher:
             if not matches:
                 if self._looks_like_non_drug_query(query):
                     result = []
-                    self._match_cache[cache_key] = tuple(result)
+                    self._store_cached_match(cache_key, result)
                     return result
                 _runtime_log("⚠️ 未找到匹配结果,返回所有药品名称")
                 result = self._drug_names
-                self._match_cache[cache_key] = tuple(result)
+                self._store_cached_match(cache_key, result)
                 return list(result)
         result = [match[0] for match in matches]
-        self._match_cache[cache_key] = tuple(result)
+        self._store_cached_match(cache_key, result)
         return result
 
     def refresh_cache(self, match_type: str = 'bottle'):

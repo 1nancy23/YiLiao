@@ -293,11 +293,19 @@ class RknnOCRRecognizer:
             raise RuntimeError("Init OCR cls runtime failed")
 
         self.characters = tight_ocr.load_ctc_character_list(self.char_dict_path)
+        self._cpu_executor = ThreadPoolExecutor(max_workers=self.cpu_workers)
+        self._det_executor = ThreadPoolExecutor(max_workers=max(1, len(self.det_workers)))
+        self._rec_executor = ThreadPoolExecutor(max_workers=max(1, len(self.rec_workers)))
         self.last_timing = {}
         self._text_angle_lock = threading.Lock()
         self._text_angle_serial = 0
         self._text_angle_stats = {}
         self._reset_text_angle_stats()
+        self._cylindrical_map_cache = {}
+        self._cylindrical_map_cache_limit = max(
+            0,
+            int(os.environ.get("YILIAO_CYLINDRICAL_MAP_CACHE_LIMIT", "32")),
+        )
         self.debug_dir = ""
         self.debug_prefix = "ocr"
         self._debug_seq = 0
@@ -305,6 +313,13 @@ class RknnOCRRecognizer:
         self.detvis_save_dir = os.environ.get("YILIAO_DETVIS_SAVE_DIR", "").strip()
 
     def release(self):
+        for attr in ("_cpu_executor", "_det_executor", "_rec_executor"):
+            executor = getattr(self, attr, None)
+            if executor is not None:
+                executor.shutdown(wait=True)
+                setattr(self, attr, None)
+        self._cylindrical_map_cache.clear()
+
         for worker in getattr(self, "det_workers", []):
             model = worker.get("rknn")
             if model is None:
@@ -512,8 +527,7 @@ class RknnOCRRecognizer:
             return []
         if self.cpu_workers <= 1 or len(items) <= 1:
             return [func(item) for item in items]
-        with ThreadPoolExecutor(max_workers=min(self.cpu_workers, len(items))) as executor:
-            return list(executor.map(func, items))
+        return list(self._cpu_executor.map(func, items))
 
     def _reset_text_angle_stats(self):
         with getattr(self, "_text_angle_lock", threading.Lock()):
@@ -543,15 +557,15 @@ class RknnOCRRecognizer:
         started = time.perf_counter()
         image = item["image"]
         source_map = _squeeze_det_map(det_map)
-        source_map = cv2.resize(
-            source_map,
-            (image.shape[1], image.shape[0]),
-            interpolation=cv2.INTER_LINEAR,
-        )
+        if source_map.shape[:2] != image.shape[:2]:
+            source_map = cv2.resize(
+                source_map,
+                (image.shape[1], image.shape[0]),
+                interpolation=cv2.INTER_LINEAR,
+            )
         direction_gray = np.rint(np.clip(source_map, 0.0, 1.0) * 255.0).astype(np.uint8)
-        direction_image = cv2.cvtColor(direction_gray, cv2.COLOR_GRAY2BGR)
         dominant_angle = ImageProcessor._text_axis_angle(
-            direction_image,
+            direction_gray,
             ignore_border_ratio=0.20,
             return_debug=False,
         )
@@ -603,6 +617,7 @@ class RknnOCRRecognizer:
             if visual_dir:
                 save_started = time.perf_counter()
                 os.makedirs(visual_dir, exist_ok=True)
+                direction_image = cv2.cvtColor(direction_gray, cv2.COLOR_GRAY2BGR)
                 cv2.imwrite(
                     os.path.join(visual_dir, f"candidate_{serial:03d}_det_text_direction.jpg"),
                     direction_image,
@@ -764,8 +779,7 @@ class RknnOCRRecognizer:
         if active_workers <= 1:
             results = [run_job(job) for job in jobs]
         else:
-            with ThreadPoolExecutor(max_workers=active_workers) as executor:
-                results = list(executor.map(run_job, jobs))
+            results = list(self._det_executor.map(run_job, jobs))
         infer_wall = time.perf_counter() - t_wall
 
         ordered_outputs = [None] * len(jobs)
@@ -929,8 +943,7 @@ class RknnOCRRecognizer:
         if len(jobs) == 1 or len(workers) == 1:
             rec_job_results = [run_rec_job(job) for job in jobs]
         else:
-            with ThreadPoolExecutor(max_workers=len(workers)) as executor:
-                rec_job_results = list(executor.map(run_rec_job, jobs))
+            rec_job_results = list(self._rec_executor.map(run_rec_job, jobs))
         self._last_mixed_rec_infer += time.perf_counter() - t_infer_all
         self._last_mixed_rec_worker_infer += sum(item[2] for item in rec_job_results)
 
@@ -1539,6 +1552,17 @@ class RknnOCRRecognizer:
         if min(h, w) < 30:
             return image
 
+        cache_key = (h, w, float(curvature_strength))
+        cached_maps = self._cylindrical_map_cache.get(cache_key)
+        if cached_maps is not None:
+            return cv2.remap(
+                image,
+                cached_maps[0],
+                cached_maps[1],
+                interpolation=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_REPLICATE,
+            )
+
         cx = w / 2.0
         # Ensure radius ≥ w/2 so that |(col - cx) / radius| ≤ 1 for every
         # column, keeping arcsin() well-defined across the full image width.
@@ -1562,6 +1586,11 @@ class RknnOCRRecognizer:
         map_y = np.broadcast_to(
             np.arange(h, dtype=np.float32)[:, np.newaxis], (h, w)
         )
+
+        if self._cylindrical_map_cache_limit > 0:
+            if len(self._cylindrical_map_cache) >= self._cylindrical_map_cache_limit:
+                self._cylindrical_map_cache.pop(next(iter(self._cylindrical_map_cache)))
+            self._cylindrical_map_cache[cache_key] = (map_x, map_y)
 
         corrected = cv2.remap(
             image, map_x, map_y,

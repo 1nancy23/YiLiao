@@ -172,6 +172,7 @@ def find_font_path():
 
 FONT_PATH = find_font_path()
 FONT_CACHE = {}
+RESULT_ICON_CACHE = {}
 
 
 def get_font(size):
@@ -190,11 +191,20 @@ def text_width(text, font):
 
 
 def load_result_icon(success):
+    cache_key = bool(success)
+    if cache_key in RESULT_ICON_CACHE:
+        icon = RESULT_ICON_CACHE[cache_key]
+        return icon.copy() if icon is not None else None
+
     names = ("对.png",) if success else ("错 .png", "错.png")
     for name in names:
         path = os.path.join(PROJECT_ROOT, name)
         if os.path.exists(path):
-            return Image.open(path).convert("RGBA")
+            with Image.open(path) as source:
+                icon = source.convert("RGBA")
+            RESULT_ICON_CACHE[cache_key] = icon
+            return icon.copy()
+    RESULT_ICON_CACHE[cache_key] = None
     return None
 
 
@@ -328,8 +338,14 @@ def is_match_success(payload):
 
 
 class NativeRuntime:
-    def __init__(self, event_queue):
+    _COALESCED_EVENT_TYPES = frozenset(("status", "auto_waiting"))
+
+    def __init__(self, event_queue, build_bottle_frames=True):
         self.event_queue = event_queue
+        self.build_bottle_frames = bool(build_bottle_frames)
+        self._event_lock = threading.Lock()
+        self._latest_events = {}
+        self._queued_latest_events = set()
         self.lock = threading.Lock()
         self.thread = None
         self.stop_event = threading.Event()
@@ -337,6 +353,7 @@ class NativeRuntime:
         self.last_result = None
         self.latest_detection_frame = None
         self.latest_bottle_frame = None
+        self.latest_bottle_frame_version = 0
         self._auto_trigger_active = False
         self._auto_waiting_active = False
         self.requested_trigger_mode = "manual"
@@ -363,6 +380,7 @@ class NativeRuntime:
             self.last_result = None
             self.latest_detection_frame = None
             self.latest_bottle_frame = None
+            self.latest_bottle_frame_version = 0
             self._auto_trigger_active = False
             self._auto_waiting_active = False
             self.status.update({
@@ -473,12 +491,19 @@ class NativeRuntime:
             })
 
     def update_result(self, payload):
-        bottle_frame = build_bottle_visualization(payload.get("bottles") or [])
+        bottles = payload.get("bottles") or []
+        if self.build_bottle_frames:
+            bottle_frame = build_bottle_visualization(bottles)
+        else:
+            bottle_frame = None
+            for bottle in bottles:
+                bottle.pop("det_visualization", None)
         payload = jsonable(payload)
         with self.lock:
             self.last_result = payload
             self.latest_detection_frame = None
             self.latest_bottle_frame = bottle_frame
+            self.latest_bottle_frame_version += 1
             self.status["last_result_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
             self.status["processing"] = False
             status = dict(self.status)
@@ -489,7 +514,7 @@ class NativeRuntime:
         if frame is None:
             return
         with self.lock:
-            self.latest_detection_frame = frame.copy()
+            self.latest_detection_frame = frame
 
     def consume_detection_frame(self):
         with self.lock:
@@ -499,10 +524,27 @@ class NativeRuntime:
 
     def snapshot_bottle_frame(self):
         with self.lock:
-            return self.latest_bottle_frame
+            return self.latest_bottle_frame, self.latest_bottle_frame_version
 
     def _emit(self, event_type, data):
+        if event_type in self._COALESCED_EVENT_TYPES:
+            with self._event_lock:
+                self._latest_events[event_type] = data
+                if event_type in self._queued_latest_events:
+                    return
+                try:
+                    self.event_queue.put_nowait((event_type, None))
+                except queue.Full:
+                    return
+                self._queued_latest_events.add(event_type)
+            return
         self.event_queue.put((event_type, data))
+
+    def consume_latest_event(self, event_type):
+        with self._event_lock:
+            data = self._latest_events.pop(event_type, None)
+            self._queued_latest_events.discard(event_type)
+            return data
 
     def _run_detection(self):
         conn = None
@@ -662,8 +704,11 @@ class NativeRecognitionApp:
         self.result_only = bool(result_only)
         self.show_auto_popup = bool(show_auto_popup)
         self.fullscreen = bool(fullscreen)
-        self.events = queue.Queue()
-        self.runtime = NativeRuntime(self.events)
+        self.events = queue.Queue(maxsize=64)
+        self.runtime = NativeRuntime(
+            self.events,
+            build_bottle_frames=not self.result_only,
+        )
         if initial_mode:
             self.runtime.set_trigger_mode(initial_mode)
         self.status = dict(self.runtime.status)
@@ -677,6 +722,7 @@ class NativeRecognitionApp:
         self.scroll = 0
         self.cached_frame = None
         self.dirty = True
+        self.bottle_frame_version = -1
         self.running = True
         self.trigger_popup_until = 0.0
         self.trigger_popup_persistent = False
@@ -704,15 +750,17 @@ class NativeRecognitionApp:
     def run(self):
         while self.running:
             self.drain_events()
-            cv2.imshow(self.window_name, self.render())
+            if self.cached_frame is None or self.dirty:
+                cv2.imshow(self.window_name, self.render())
             detection_frame = self.runtime.consume_detection_frame()
             if detection_frame is not None:
                 self.show_detection_frame(detection_frame)
                 del detection_frame
             if not self.result_only:
-                bottle_frame = self.runtime.snapshot_bottle_frame()
-                if bottle_frame is not None:
+                bottle_frame, bottle_frame_version = self.runtime.snapshot_bottle_frame()
+                if bottle_frame is not None and bottle_frame_version != self.bottle_frame_version:
                     cv2.imshow(self.bottle_window_name, bottle_frame)
+                    self.bottle_frame_version = bottle_frame_version
             if (
                 self.trigger_popup_until
                 and not self.trigger_popup_persistent
@@ -771,6 +819,10 @@ class NativeRecognitionApp:
         try:
             while True:
                 event_type, data = self.events.get_nowait()
+                if event_type in self.runtime._COALESCED_EVENT_TYPES:
+                    data = self.runtime.consume_latest_event(event_type)
+                    if data is None:
+                        continue
                 if event_type == "status" and data != self.status:
                     self.status = data
                     self.dirty = True

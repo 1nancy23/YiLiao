@@ -177,7 +177,14 @@ class ImageProcessor:
         if roi.size == 0 or min(roi.shape[:2]) < 20:
             return (None, None) if return_debug else None
 
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        if roi.ndim == 2:
+            gray = roi
+        elif roi.shape[2] == 1:
+            gray = roi[:, :, 0]
+        elif roi.shape[2] == 4:
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGRA2GRAY)
+        else:
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (3, 3), 0)
         edges = cv2.Canny(gray, 35, 110, apertureSize=3)
         edges = cv2.morphologyEx(
@@ -201,7 +208,7 @@ class ImageProcessor:
         )
 
         angles, weights = [], []
-        debug = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+        debug = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR) if return_debug else None
         if lines is not None:
             for line in lines[:, 0, :]:
                 lx1, ly1, lx2, ly2 = line
