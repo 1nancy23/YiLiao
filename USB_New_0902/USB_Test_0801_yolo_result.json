@@ -1,0 +1,89 @@
+{
+  "image_shape": [
+    2160,
+    3840,
+    3
+  ],
+  "basket": {
+    "box": [
+      147.0,
+      0.0,
+      3651.0,
+      2160.0
+    ],
+    "confidence": 0.94970703125,
+    "area_ratio": 0.9125,
+    "sharpness": 55.59609009505728,
+    "valid": true,
+    "visualization": "USB_New_0902/USB_Test_0801_basket_yolo.jpg",
+    "elapsed_sec": 0.4076
+  },
+  "targets": {
+    "counts": {
+      "bottle": 3,
+      "bag": 0,
+      "infusion": 2
+    },
+    "detections": [
+      {
+        "box": [
+          1517.25,
+          1792.12,
+          2004.75,
+          2021.62
+        ],
+        "confidence": 0.785645,
+        "class_id": 0,
+        "class_name": "bottle"
+      },
+      {
+        "box": [
+          1198.5,
+          73.41,
+          1498.5,
+          477.14
+        ],
+        "confidence": 0.726562,
+        "class_id": 0,
+        "class_name": "bottle"
+      },
+      {
+        "box": [
+          1747.5,
+          15.19,
+          2041.5,
+          571.22
+        ],
+        "confidence": 0.582031,
+        "class_id": 0,
+        "class_name": "bottle"
+      },
+      {
+        "box": [
+          2097.0,
+          36.28,
+          3150.0,
+          1058.91
+        ],
+        "confidence": 0.651367,
+        "class_id": 2,
+        "class_name": "infusion"
+      },
+      {
+        "box": [
+          1980.0,
+          681.75,
+          3126.0,
+          1937.25
+        ],
+        "confidence": 0.626953,
+        "class_id": 2,
+        "class_name": "infusion"
+      }
+    ],
+    "full_visualization": "USB_New_0902/USB_Test_0801_targets_yolo_full.jpg",
+    "display_visualization": "USB_New_0902/USB_Test_0801_targets_yolo_display.jpg",
+    "elapsed_sec": 0.3952
+  },
+  "json": "USB_New_0902/USB_Test_0801_yolo_result.json"
+}

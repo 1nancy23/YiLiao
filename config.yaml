@@ -1,0 +1,85 @@
+project:
+  name: "Medical Image Detect"
+
+runtime:
+  trigger_interval: 5
+  trigger_mode: manual
+  video_source: usb
+  video_path: ""
+  basket_area_threshold: 0.40
+  basket_sharpness_threshold: 40
+  basket_stable_frames: 12
+  basket_capture_timeout: 10.0
+  basket_resume_delay: 1.0
+
+crop_region:  # 识别区域
+  x_min: 640
+  x_max: 1920
+  y_min: 720
+  y_max: 2048
+
+RTSP:
+  username: "admin"
+  password: "a1b2c3d4"
+  ip_address: "192.168.254.5"
+  port: "554"
+  channel: "201"
+
+USB:
+  device: "/dev/v4l/by-id/usb-Fic_48MP_USB_Camera_2512220001-video-index0"
+  width: 3840
+  height: 2160
+  fps: 30
+  warmup_frames: 25
+  controls:
+    focus_auto: 0
+    focus_absolute: 64
+    brightness: 32
+    contrast: 34
+    saturation: 32
+    gamma: 32
+    white_balance_temperature_auto: 1
+    exposure_auto: 3
+    sharpness: 32
+
+model: # unetformer模型配置
+  num_classes: 4
+  checkpoint_path: "./model/best_model_0329_2.pt"
+  yolo_path : "./model/best_yolo.pt"
+  yolo_rknn_path: "./model_yolo_0903.rknn"
+  yolo_rknn_previous_path: "./model_yolo_0615.rknn"
+  yolo_input_size: 640
+  basket_rknn_path: "./model_bask_0609_n.rknn"
+  # This RKNN has a fixed 640x640 input and an 8400-candidate YOLO head.
+  basket_input_size: 640
+
+segmentor: # 处理（关键性能参数）
+  tile_size: 640
+  overlap: 16  # 减小overlap提升速度
+  target_fps: 6
+  batch_frames: 1  # 🔥 批量处理帧数（根据显存调整：2-4）
+
+display: # 显示
+  output_type: overlay
+  overlay_alpha: 0.5
+  display_scale: 0.5
+
+saving: # 保存
+  save_video: false # 是否保存视频
+  output_path: "./realtime_segs_{int(time.time())}.mp4"
+  save_fps: 20
+
+db_config: # 数据库配置
+  host: 192.168.137.1
+  user: root
+  password: root
+  database: medicine_db2
+  charset: utf8
+
+table_config: # 数据表配置
+  drug_table: drugs
+  drug_column: medicine_name
+  patient_table: batches
+  patient_column: patient_name
+  batch_table: batches
+  batch_medicines_column: medicines_json
